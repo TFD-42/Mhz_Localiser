@@ -1,0 +1,36 @@
+# Build outputs
+android/app/build/
+android/.gradle/
+android/build/
+*.apk
+*.aab
+build/
+.extapps/
+
+# Capacitor / Node
+node_modules/
+dist/
+.capacitor/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.suo
+*.user
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Secrets / env
+.env
+*.keystore
+google-services.json
+local.properties
+
+# Flipper build artifacts
+*.elf
+*.bin
+*.dfu
+*.map
