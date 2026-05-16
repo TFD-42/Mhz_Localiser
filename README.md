@@ -1,4 +1,4 @@
-# Mhz_Localise
+# Mhz_Localiser
 
 
 **RF signal triangulation system** — Flipper Zero streams live RSSI over USB to an Android app that logs GPS + signal and estimates the transmitter location on a map.
