@@ -29,8 +29,8 @@ Mhz_Localise/
 │       └── plugin/
 │           └── FlipperSerialPlugin.java  ← Native USB serial plugin
 └── Ready_To_Go/
-    ├── RF_Triangulator.apk ← Install directly on Android
-    └── rf_logger.fap       ← Copy to Flipper SD card
+    ├── Geo-Flip.apk ← Install directly on Android
+    └── Geo-Flip.fap ← Copy to Flipper SD card
 ```
 
 ---
@@ -229,9 +229,9 @@ Geo-Flip is the **lowest cost and lowest barrier** option. It trades precision f
 
 ### Step 1 — Install the Flipper app
 
-1. Copy `Ready_To_Go/rf_logger.fap` to your Flipper SD card:
+1. Copy `Ready_To_Go/Geo-Flip.fap` to your Flipper SD card:
    ```
-   /ext/apps/Sub-GHz/rf_logger.fap
+   /ext/apps/Sub-GHz/Geo-Flip.fap
    ```
 2. On the Flipper: **Apps → Sub-GHz → RF Logger**
 3. Select a frequency from the menu (or choose **Manual MHz…** to enter one).
@@ -242,7 +242,7 @@ Geo-Flip is the **lowest cost and lowest barrier** option. It trades precision f
 
 1. Enable **Install unknown apps** in Android settings (or use ADB):
    ```bash
-   adb install Ready_To_Go/RF_Triangulator.apk
+   adb install Ready_To_Go/Geo-Flip.apk
    ```
 2. Grant **Location** permission when prompted.
 
