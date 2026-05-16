@@ -1,5 +1,12 @@
 # Geo-Flip
 
+[![Release](https://img.shields.io/github/v/release/TFD-42/Geo-Flip?style=flat-square&color=f85149&label=release)](https://github.com/TFD-42/Geo-Flip/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Android%208%2B-green?style=flat-square&logo=android)](https://github.com/TFD-42/Geo-Flip/releases/latest)
+[![Flipper Zero](https://img.shields.io/badge/Flipper%20Zero-FAP-orange?style=flat-square)](https://github.com/TFD-42/Geo-Flip/releases/latest)
+[![Sub-GHz](https://img.shields.io/badge/Sub--GHz-433%2F868%2F915%20MHz-purple?style=flat-square)](#)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
+
 <img width="1254" height="1254" alt="Geo-Flip" src="https://github.com/user-attachments/assets/0504201a-e1e5-4770-84fc-4c2617cee623" />
 
 **RF signal triangulation system** — Flipper Zero streams live RSSI over USB to an Android app that logs GPS + signal and estimates the transmitter location on a map.
