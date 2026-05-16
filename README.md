@@ -80,6 +80,9 @@ If you captured data directly on the Flipper SD card, tap **☰ → Load .sub / 
 - **CSV** — one row per capture: `id, lat, lon, rssi_dbm, freq_hz, source`
 - **JSON** — full capture list + triangulation estimate
 
+# If Auto Frequancy Freeze In APK Disconect USB From Android And Reconnect
+
+
 ---
 
 ## Build from source
