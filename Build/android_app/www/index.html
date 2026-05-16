@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+<meta name="theme-color" content="#0e1117" />
+<title>RF Triangulator</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- Top bar -->
+  <header id="topbar">
+    <div class="brand">📡 RF Triangulator</div>
+    <button id="menu-btn" class="icon-btn" aria-label="Menu">☰</button>
+  </header>
+
+  <!-- Map area with Flipper mirror stacked above -->
+  <main id="map-wrap">
+
+    <!-- Flipper Zero mirror — top ~25% — hidden until connected -->
+    <div id="flipper-mirror" class="flipper-mirror hidden">
+      <div class="fm-screen">
+        <div class="fm-title">RF Logger</div>
+        <div class="fm-freq" id="fm-freq">— MHz</div>
+        <div class="fm-rssi" id="fm-rssi">— dBm</div>
+        <div class="fm-bar-wrap">
+          <div class="fm-bar-track"><div class="fm-bar-fill" id="fm-bar"></div></div>
+          <div class="fm-bar-labels"><span>-120</span><span>-60</span><span>0</span></div>
+        </div>
+        <div class="fm-meta" id="fm-meta">LQI:— · #—</div>
+      </div>
+      <div class="fm-status">
+        <span class="fm-dot" id="fm-dot"></span>
+        <span id="fm-status-text">Connecting…</span>
+      </div>
+    </div>
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- GPS badge -->
+    <div id="gps-badge" class="gps-badge stale">
+      <span class="dot"></span>
+      <span id="gps-text">GPS: searching…</span>
+    </div>
+
+    <!-- Capture button -->
+    <div id="capture-bar">
+      <button id="capture-btn" class="capture-btn">
+        <span class="capture-icon">●</span>
+        <span>Capture here</span>
+      </button>
+    </div>
+
+    <!-- Drop overlay (drag & drop) -->
+    <div id="drop-overlay" class="drop-overlay hidden">
+      <div class="drop-inner">
+        <div class="drop-icon">📡</div>
+        <div class="drop-title">Drop Flipper file to import</div>
+        <div class="drop-sub">.sub · .log · .csv · .txt</div>
+      </div>
+    </div>
+
+    <!-- Hidden file input for drag/click import -->
+    <input id="sub-file-main" type="file" accept=".sub,.log,.txt,.csv" multiple hidden />
+  </main>
+
+  <!-- Drawer / menu -->
+  <aside id="drawer" class="drawer hidden">
+    <div class="drawer-hdr">
+      <h2>Menu</h2>
+      <button id="drawer-close" class="icon-btn" aria-label="Close">✕</button>
+    </div>
+
+    <!-- Flipper connection -->
+    <section class="panel" id="flipper-panel" data-connected="0">
+      <h3>Flipper Zero</h3>
+      <div id="flipper-rssi-badge" class="flipper-badge">Not connected</div>
+      <div class="btn-row" style="margin-top:8px">
+        <button id="flipper-connect-btn" class="btn secondary">Connect Flipper</button>
+        <button id="flipper-auto-btn" class="btn secondary" disabled>Auto-capture</button>
+      </div>
+      <label class="hint" style="margin-top:8px; display:flex; align-items:center; gap:8px;">
+        Interval:
+        <select id="flipper-interval" style="flex:1; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:4px 8px; font-size:12px;">
+          <option value="1000">1 s</option>
+          <option value="2000" selected>2 s</option>
+          <option value="5000">5 s</option>
+          <option value="10000">10 s</option>
+        </select>
+      </label>
+      <p class="hint">Plug Flipper via USB-C with the RF Logger app running. Frequency auto-detected from stream.</p>
+    </section>
+
+    <!-- Captures -->
+    <section class="panel">
+      <div class="row-between">
+        <h3>Captures</h3>
+        <span id="receiver-count" class="pill warn">0</span>
+      </div>
+      <div id="receivers-list"></div>
+      <p class="hint">Need <b>3+</b> captures from different spots to triangulate.</p>
+    </section>
+
+    <!-- Estimate -->
+    <section class="panel">
+      <h3>Estimated transmitter</h3>
+      <div id="estimate-box">
+        <div id="estimate-status">Need ≥ 3 captures.</div>
+        <div id="estimate-coord" class="mono"></div>
+        <div id="estimate-error" class="hint"></div>
+        <button id="goto-estimate" class="btn secondary" style="margin-top:8px; display:none;">
+          🎯 Center on estimate
+        </button>
+      </div>
+    </section>
+
+    <!-- Import / Export -->
+    <section class="panel">
+      <h3>Import / Export</h3>
+      <div class="btn-row">
+        <label class="btn secondary" for="sub-file">📂 Load .sub / .log</label>
+        <input id="sub-file" type="file" accept=".sub,.log,.txt,.csv" hidden multiple />
+      </div>
+      <div id="import-status" class="hint"></div>
+      <div class="btn-row" style="margin-top:8px">
+        <button id="export-csv-btn" class="btn secondary">⬇️ CSV</button>
+        <button id="export-json-btn" class="btn secondary">⬇️ JSON</button>
+        <button id="clear-btn" class="btn danger">🗑</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <details>
+        <summary>About</summary>
+        <p class="hint">Connect Flipper for live RSSI. Press <b>Capture here</b> to log GPS + signal.
+          With 3+ captures from different spots, the app estimates the transmitter location via
+          non-linear least squares (Nelder-Mead). Frequency is auto-detected from the Flipper stream.</p>
+      </details>
+    </section>
+  </aside>
+
+  <div id="toast" class="toast"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

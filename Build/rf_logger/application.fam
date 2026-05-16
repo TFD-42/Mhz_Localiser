@@ -1,0 +1,13 @@
+App(
+    appid="rf_logger",
+    name="RF Logger",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="rf_logger_app",
+    requires=["gui", "subghz"],
+    stack_size=2 * 1024,
+    fap_icon="rf_logger_icon.png",
+    fap_category="Sub-GHz",
+    fap_version=(1, 0),
+    fap_description="Sub-GHz RSSI logger with USB serial output",
+    fap_author="RF Survey Tool",
+)
