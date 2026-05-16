@@ -1,6 +1,6 @@
-# Geo-Mhz
+# Geo-Flip
 
-<img width="1254" height="1254" alt="Geo-Mhz" src="https://github.com/user-attachments/assets/0504201a-e1e5-4770-84fc-4c2617cee623" />
+<img width="1254" height="1254" alt="Geo-Flip" src="https://github.com/user-attachments/assets/0504201a-e1e5-4770-84fc-4c2617cee623" />
 
 **RF signal triangulation system** — Flipper Zero streams live RSSI over USB to an Android app that logs GPS + signal and estimates the transmitter location on a map.
 
@@ -187,13 +187,13 @@ Wrong `n` = systematically biased distance estimates = bad triangulation even wi
 
 | Solution | Method | Typical accuracy | Cost |
 |---|---|---|---|
-| **Geo-Mhz** (this project) | RSSI trilateration, mobile | 15–150 m depending on environment | ~$60 (Flipper + phone) |
+| **Geo-Flip** (this project) | RSSI trilateration, mobile | 15–150 m depending on environment | ~$60 (Flipper + phone) |
 | KrakenSDR | 5-element coherent SDR phase array | 2–10 m outdoors | ~$500 |
 | HackRF + directional antenna | Manual DF, SDR | 5–20 m with skill | ~$350 + antenna |
 | RTL-SDR + Doppler DF | Software Doppler shift | 10–30 m | ~$30 + antenna |
 | Professional TDOA systems | Time-difference of arrival | <1 m | $5,000–$50,000 |
 
-Geo-Mhz is the **lowest cost and lowest barrier** option. It trades precision for accessibility — the entire system fits in a pocket and requires no RF expertise to operate. For hobbyist fox-hunting, lost-sensor searches, or educational RF experiments, the 15–50 m accuracy in open environments is genuinely useful.
+Geo-Flip is the **lowest cost and lowest barrier** option. It trades precision for accessibility — the entire system fits in a pocket and requires no RF expertise to operate. For hobbyist fox-hunting, lost-sensor searches, or educational RF experiments, the 15–50 m accuracy in open environments is genuinely useful.
 
 ---
 
