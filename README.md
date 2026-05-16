@@ -70,6 +70,14 @@ Mhz_Localise/
 
 The CC1101 chip inside the Flipper Zero is a general-purpose Sub-GHz transceiver. Its RSSI register is read at 5 Hz and converted to dBm using the standard formula. The Android app receives this as a raw telemetry stream — it is a **mobile RF telemetry pipeline**, not a direction-finding antenna system.
 
+
+<img width="1080" height="2340" alt="Screenshot_20260516_042105_RF Triangulator" src="https://github.com/user-attachments/assets/a599f565-cc7c-48fc-8fb9-d90e0f309d09" />
+
+<img width="1080" height="2340" alt="Screenshot_20260516_042056_RF Triangulator" src="https://github.com/user-attachments/assets/91eed134-afd7-4c2c-b25a-fe03c9385fc4" />
+
+<img width="592" height="277" alt="Capture d’écran 2026-05-16 à 04 24 04" src="https://github.com/user-attachments/assets/403ff643-b638-4202-bbda-3b5e558f921a" />
+
+
 ---
 
 ## Operational Workflow
@@ -290,6 +298,7 @@ Stack: **Capacitor** (web-native bridge) · **usb-serial-for-android** (CDC-ACM)
 
 ---
 
+
 ## USB Serial Protocol
 
 Flipper streams CSV over USB CDC-ACM at **115200 baud**:
@@ -323,3 +332,5 @@ Sample rate: **200 ms (5 Hz)**. Frequency is auto-detected by the Android app fr
 | Android | 8.0+ (API 26), USB OTG support |
 | USB cable | USB-C to USB-C (or USB-A OTG adapter) |
 | GPS | Required for automatic capture; indoor = poor accuracy |
+
+
