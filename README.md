@@ -1,10 +1,10 @@
 # Mhz_Localise
 
-<img width="1254" height="1254" alt="ChatGPT Image 16 mai 2026 à 03_50_03" src="https://github.com/user-attachments/assets/5aa42b1d-563e-409e-b09f-10ac508359c3" />
-
 
 **RF signal triangulation system** — Flipper Zero streams live RSSI over USB to an Android app that logs GPS + signal and estimates the transmitter location on a map.
 
+
+<img width="1254" height="1254" alt="ChatGPT Image 16 mai 2026 à 03_50_03" src="https://github.com/user-attachments/assets/5aa42b1d-563e-409e-b09f-10ac508359c3" />
 > **Honest disclaimer:** This is a low-cost, mobile RSSI-based approach. It gives approximate results, not GPS-grade precision. Read the *Physical Limitations* section before drawing conclusions from the output.
 
 ```
