@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Build outputs
+build/
+dist/
+*.apk
+*.aab
+*.fap
+!Ready_To_Go/*.apk
+!Ready_To_Go/*.fap
+
+# Node / Capacitor
+node_modules/
+.cap/
+
+# Android
+android/.gradle/
+android/local.properties
+android/app/build/
+*.iml
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
