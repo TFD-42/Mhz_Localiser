@@ -33,6 +33,12 @@ Mhz_Localise/
 - **Android app** (`RF_Triangulator.apk`) connects to the Flipper via USB-C, reads the live RSSI stream, and logs GPS + signal captures on a map.
 - With 3 or more captures from different positions, the app runs a **Nelder-Mead least-squares solver** to estimate the transmitter location.
 
+<img width="3200" height="3200" alt="layout-collage-1779109255380" src="https://github.com/user-attachments/assets/6854f5c0-e2ab-4062-8f6e-4ff474ce8be5" />
+
+<img width="709" height="1536" alt="1000722535" src="https://github.com/user-attachments/assets/6889242d-29a7-45f7-bb6f-4333b7022c85" />
+
+
+
 ## RF Architecture
 
 ```
