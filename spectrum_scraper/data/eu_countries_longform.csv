@@ -1,0 +1,76 @@
+freq_low_mhz,freq_high_mhz,country,region,service,status,application,footnotes,typical_devices,source,note
+13.553000,13.567000,FRA,CEPT-FRA,SRD,PRIMARY,ISM 13.56 MHz (RFID/NFC),5.150,"NFC tags; RFID HF; metro/transit cards (Navigo); contactless payment cards",ARCEP TNRBF / ERC 70-03,Same as Region 1
+13.553000,13.567000,DEU,CEPT-DEU,SRD,PRIMARY,ISM 13.56 MHz (RFID/NFC),5.150,"NFC tags; RFID HF; Girokarte contactless; DB Touch&Travel",BNetzA Allgemeinzuteilung NFC,Same as Region 1
+13.553000,13.567000,GBR,CEPT-GBR,SRD,PRIMARY,ISM 13.56 MHz (RFID/NFC),5.150,"NFC tags; RFID HF; Oyster card (London); contactless payment",Ofcom IR 2030 / EN 300 330,Same as Region 1
+13.553000,13.567000,ESP,CEPT-ESP,SRD,PRIMARY,ISM 13.56 MHz (RFID/NFC),5.150,"NFC tags; RFID HF; contactless payment",CNAF nota UN-130,Same as Region 1
+13.553000,13.567000,ITA,CEPT-ITA,SRD,PRIMARY,ISM 13.56 MHz (RFID/NFC),5.150,"NFC tags; RFID HF; contactless payment",MIMIT Piano Nazionale Frequenze,Same as Region 1
+26.957000,27.283000,FRA,CEPT-FRA,SRD,PRIMARY,CB radio (40 channels) + ISM,5.150,"CB radios 40 channels (4W FM max); RC toys; ISM industrial",ARCEP TNRBF / décision n° 2014-1263,EU CB harmonised
+26.957000,27.283000,DEU,CEPT-DEU,SRD,PRIMARY,CB radio (80 channels) + ISM,5.150,"CB radios (DE has 80 channels SSB up to 12W); ISM",BNetzA Allgemeinzuteilung Vfg 30/2018,DE allows extended CB
+26.957000,27.283000,GBR,CEPT-GBR,SRD,PRIMARY,CB radio (40 channels FM) + ISM,5.150,"CB radios 40 channels FM (4W); ISM",Ofcom IR 2027 / WT 2009 SI 2009/2461,UK CB
+26.957000,27.283000,ESP,CEPT-ESP,SRD,PRIMARY,CB radio + ISM,5.150,"CB radios; RC toys; ISM industrial heaters",CNAF nota UN-7,Spain CB
+26.957000,27.283000,ITA,CEPT-ITA,SRD,PRIMARY,CB radio + ISM,5.150,"CB radios; RC toys; ISM",MIMIT / Codice Comunicazioni Elettroniche,Italy CB
+87.500000,108.000000,FRA,CEPT-FRA,BROADCASTING (FM),PRIMARY,FM broadcast,5.190,"FM stations (Radio France, NRJ, etc.); FM transmitters for cars",ARCOM (ex-CSA) plans,FM band EU
+87.500000,108.000000,DEU,CEPT-DEU,BROADCASTING (FM),PRIMARY,FM broadcast,5.190,"FM stations (ARD, Deutschlandfunk, etc.)",BNetzA + Landesmedienanstalten,FM band EU
+87.500000,108.000000,GBR,CEPT-GBR,BROADCASTING (FM),PRIMARY,FM broadcast,5.190,"FM stations (BBC R1-R6, commercial); car FM transmitters",Ofcom UK Plan of Allocations,FM band EU
+87.500000,108.000000,ESP,CEPT-ESP,BROADCASTING (FM),PRIMARY,FM broadcast,5.190,"FM stations (RNE, Cadena SER, etc.)",CNAF,FM band EU
+87.500000,108.000000,ITA,CEPT-ITA,BROADCASTING (FM),PRIMARY,FM broadcast,5.190,"FM stations (RAI, Radio 24, etc.)",MIMIT / AGCOM,FM band EU
+144.000000,146.000000,FRA,CEPT-FRA,AMATEUR,PRIMARY,2m ham,5.216,"2m ham (FT8, FM repeaters, APRS at 144.800)",ARCEP TNRBF / REF F1A4G,EU 2m amateur
+144.000000,146.000000,DEU,CEPT-DEU,AMATEUR,PRIMARY,2m ham,5.216,"2m ham (APRS 144.800; FM repeaters)",BNetzA Amateurfunk-Verordnung,EU 2m amateur
+144.000000,146.000000,GBR,CEPT-GBR,AMATEUR,PRIMARY,2m ham,5.216,"2m ham (APRS 144.800; FM repeaters)",Ofcom OfW446 (Amateur Radio Licence),EU 2m amateur
+144.000000,146.000000,ESP,CEPT-ESP,AMATEUR,PRIMARY,2m ham,5.216,2m ham,URE / CNAF,EU 2m amateur
+144.000000,146.000000,ITA,CEPT-ITA,AMATEUR,PRIMARY,2m ham,5.216,2m ham,ARI / MIMIT,EU 2m amateur
+156.000000,162.050000,FRA,CEPT-FRA,MARITIME MOBILE,PRIMARY,Marine VHF + AIS,5.226,"Marine VHF (channel 16 distress); AIS 161.975/162.025 MHz",ARCEP,Marine VHF worldwide
+156.000000,162.050000,DEU,CEPT-DEU,MARITIME MOBILE,PRIMARY,Marine VHF + AIS,5.226,"Marine VHF; AIS",BNetzA / WSA,Marine VHF worldwide
+156.000000,162.050000,GBR,CEPT-GBR,MARITIME MOBILE,PRIMARY,Marine VHF + AIS,5.226,"Marine VHF; AIS (MCA monitoring)",Ofcom + MCA,Marine VHF worldwide
+156.000000,162.050000,ESP,CEPT-ESP,MARITIME MOBILE,PRIMARY,Marine VHF + AIS,5.226,Marine VHF + AIS,CNAF,Marine VHF worldwide
+156.000000,162.050000,ITA,CEPT-ITA,MARITIME MOBILE,PRIMARY,Marine VHF + AIS,5.226,Marine VHF + AIS,MIMIT,Marine VHF worldwide
+380.000000,400.000000,FRA,CEPT-FRA,TETRA (Emergency),PRIMARY,Public Safety,5.286A,"TETRA INPT (police, gendarmerie, sapeurs-pompiers); ANTARES",ARCEP + ANTARES,FR public safety TETRA
+380.000000,400.000000,DEU,CEPT-DEU,TETRA (Emergency),PRIMARY,Public Safety,5.286A,"BOSnet (BDBOS digital police/fire); German TETRA",BDBOS / BNetzA,DE BOSnet TETRA
+380.000000,400.000000,GBR,CEPT-GBR,TETRA (Emergency),PRIMARY,Airwave Public Safety,5.286A,"Airwave network (police, ambulance, fire); to be replaced by ESN 4G",Ofcom + Home Office,UK Airwave TETRA
+380.000000,400.000000,ESP,CEPT-ESP,TETRA (Emergency),PRIMARY,SIRDEE Public Safety,5.286A,"SIRDEE (Guardia Civil, Policía Nacional, bomberos); RESCAT in Catalonia",CNAF + Min. Interior,ES SIRDEE TETRA
+380.000000,400.000000,ITA,CEPT-ITA,TETRA (Emergency),PRIMARY,Public Safety,5.286A,"TETRA Carabinieri / Polizia di Stato; provincial networks",MIMIT + Min. Interno,IT TETRA
+430.000000,440.000000,FRA,CEPT-FRA,AMATEUR,Secondary,70cm ham,5.270,"70cm ham (430-440); ISM SRD 433.05-434.79",ARCEP / REF,EU 70cm amateur
+430.000000,440.000000,DEU,CEPT-DEU,AMATEUR,Secondary,70cm ham,5.270,"70cm ham; ISM SRD 433.05-434.79",BNetzA Amateurfunk-Verordnung,EU 70cm amateur
+430.000000,440.000000,GBR,CEPT-GBR,AMATEUR,Secondary,70cm ham,5.270,"70cm ham (only 430-440 in UK); ISM",Ofcom OfW446,UK 70cm amateur
+430.000000,440.000000,ESP,CEPT-ESP,AMATEUR,Secondary,70cm ham,5.270,70cm ham,URE / CNAF,EU 70cm amateur
+430.000000,440.000000,ITA,CEPT-ITA,AMATEUR,Secondary,70cm ham,5.270,70cm ham,ARI / MIMIT,EU 70cm amateur
+433.050000,434.790000,FRA,CEPT-FRA,SRD (ISM) non-specific,PRIMARY,ISM 433 MHz,5.138 5.150,"Car key fobs (RKE); garage door openers; wireless doorbells; weather stations; LoRa fallback; RC toys; smart locks",ARCEP / ERC 70-03 Annex 1 / EN 300 220,EU ISM 433 MHz
+433.050000,434.790000,DEU,CEPT-DEU,SRD (ISM) non-specific,PRIMARY,ISM 433 MHz,5.138 5.150,"Car key fobs; garage openers; doorbells; weather stations; LoRa fallback; smart home",BNetzA Vfg 76/2003 / EN 300 220,EU ISM 433 MHz
+433.050000,434.790000,GBR,CEPT-GBR,SRD (ISM) non-specific,PRIMARY,ISM 433 MHz,5.138 5.150,"Car key fobs; garage openers; doorbells; weather stations; LoRa fallback",Ofcom IR 2030 / EN 300 220,EU ISM 433 MHz
+433.050000,434.790000,ESP,CEPT-ESP,SRD (ISM) non-specific,PRIMARY,ISM 433 MHz,5.138 5.150,"Car key fobs; garage openers; weather stations; LoRa fallback",CNAF nota UN-30 / EN 300 220,EU ISM 433 MHz
+433.050000,434.790000,ITA,CEPT-ITA,SRD (ISM) non-specific,PRIMARY,ISM 433 MHz,5.138 5.150,"Car key fobs; garage openers; weather stations",MIMIT / EN 300 220,EU ISM 433 MHz
+446.000000,446.200000,FRA,CEPT-FRA,PMR446 (Land Mobile),PRIMARY,License-free PMR,5.286AA,"PMR446 walkie-talkies (Motorola TLKR, Midland, etc.); 16 channels; 0.5W ERP",ARCEP décision n° 2014-1263 / ERC/DEC/(98)25,EU PMR446 harmonised
+446.000000,446.200000,DEU,CEPT-DEU,PMR446 (Land Mobile),PRIMARY,License-free PMR,5.286AA,"PMR446 walkie-talkies; 16 channels analog + 32 digital",BNetzA Vfg 14/2005 / ERC/DEC/(98)25,EU PMR446
+446.000000,446.200000,GBR,CEPT-GBR,PMR446 (Land Mobile),PRIMARY,License-free PMR,5.286AA,"PMR446 walkie-talkies; 16 channels analog",Ofcom IR 2009 / ERC/DEC/(98)25,EU PMR446
+446.000000,446.200000,ESP,CEPT-ESP,PMR446 (Land Mobile),PRIMARY,License-free PMR,5.286AA,"PMR446 walkie-talkies",CNAF nota UN-43 / ERC/DEC/(98)25,EU PMR446
+446.000000,446.200000,ITA,CEPT-ITA,PMR446 (Land Mobile),PRIMARY,License-free PMR,5.286AA,"PMR446 walkie-talkies",MIMIT / ERC/DEC/(98)25,EU PMR446
+863.000000,870.000000,FRA,CEPT-FRA,SRD (ISM) non-specific,PRIMARY,ISM 868 MHz EU,5.150 5.138,"LoRa EU868 (865-867 MHz channels CH1-CH8); Sigfox EU; Z-Wave EU (868.4 MHz); MIOTY; smart meters Linky uses LoRaWAN here; weather sensors; smart home; doorbells",ARCEP / ERC 70-03 Annex 1 / EN 300 220,EU ISM 868 MHz
+863.000000,870.000000,DEU,CEPT-DEU,SRD (ISM) non-specific,PRIMARY,ISM 868 MHz EU,5.150 5.138,"LoRa EU868; Sigfox EU; Z-Wave EU; smart meters (Smart-Meter-Gateway); weather sensors; smart home; doorbells",BNetzA Vfg 76/2003 / EN 300 220,EU ISM 868 MHz
+863.000000,870.000000,GBR,CEPT-GBR,SRD (ISM) non-specific,PRIMARY,ISM 868 MHz EU,5.150 5.138,"LoRa EU868; Sigfox; Z-Wave EU (868.4); smart meters (SMETS2 GSME-CH); weather sensors; smart home",Ofcom IR 2030 / EN 300 220,EU ISM 868 MHz
+863.000000,870.000000,ESP,CEPT-ESP,SRD (ISM) non-specific,PRIMARY,ISM 868 MHz EU,5.150 5.138,"LoRa EU868; Sigfox; Z-Wave EU; smart meters; weather sensors",CNAF nota UN-31 / EN 300 220,EU ISM 868 MHz
+863.000000,870.000000,ITA,CEPT-ITA,SRD (ISM) non-specific,PRIMARY,ISM 868 MHz EU,5.150 5.138,"LoRa EU868; Sigfox; Z-Wave EU; smart meters; weather sensors",MIMIT / EN 300 220,EU ISM 868 MHz
+880.000000,915.000000,FRA,CEPT-FRA,MOBILE (GSM 900 / LTE Band 8 UL),PRIMARY,Mobile uplink,5.317A,"GSM 900 uplink; LTE Band 8 uplink (Orange, SFR, Bouygues, Free Mobile)",ARCEP,GSM/LTE 900 EU
+880.000000,915.000000,DEU,CEPT-DEU,MOBILE (GSM 900 / LTE Band 8 UL),PRIMARY,Mobile uplink,5.317A,"GSM 900 uplink; LTE Band 8 uplink (Telekom, Vodafone, O2)",BNetzA,GSM/LTE 900 EU
+880.000000,915.000000,GBR,CEPT-GBR,MOBILE (GSM 900 / LTE Band 8 UL),PRIMARY,Mobile uplink,5.317A,"GSM 900 uplink; LTE Band 8 uplink (EE, Vodafone, O2, Three)",Ofcom,GSM/LTE 900 EU
+880.000000,915.000000,ESP,CEPT-ESP,MOBILE (GSM 900 / LTE Band 8 UL),PRIMARY,Mobile uplink,5.317A,"GSM 900 uplink; LTE Band 8 uplink (Movistar, Orange ES, Vodafone ES)",CNAF,GSM/LTE 900 EU
+880.000000,915.000000,ITA,CEPT-ITA,MOBILE (GSM 900 / LTE Band 8 UL),PRIMARY,Mobile uplink,5.317A,"GSM 900 uplink; LTE Band 8 uplink (TIM, Vodafone IT, WindTre)",MIMIT,GSM/LTE 900 EU
+1880.000000,1900.000000,FRA,CEPT-FRA,DECT,PRIMARY,Cordless phones,5.380A,"DECT cordless phones; baby monitors DECT",ARCEP / EN 300 175,EU DECT
+1880.000000,1900.000000,DEU,CEPT-DEU,DECT,PRIMARY,Cordless phones,5.380A,"DECT cordless phones (Gigaset, AVM FRITZ!Fon); baby monitors",BNetzA / EN 300 175,EU DECT
+1880.000000,1900.000000,GBR,CEPT-GBR,DECT,PRIMARY,Cordless phones,5.380A,"DECT cordless phones (BT, Panasonic); baby monitors",Ofcom / EN 300 175,EU DECT
+1880.000000,1900.000000,ESP,CEPT-ESP,DECT,PRIMARY,Cordless phones,5.380A,"DECT cordless phones",CNAF / EN 300 175,EU DECT
+1880.000000,1900.000000,ITA,CEPT-ITA,DECT,PRIMARY,Cordless phones,5.380A,"DECT cordless phones",MIMIT / EN 300 175,EU DECT
+2400.000000,2483.500000,FRA,CEPT-FRA,SRD (ISM) / AMATEUR,PRIMARY,Wi-Fi/BT/Zigbee/uW oven,5.150 5.282,"Wi-Fi 2.4 GHz (802.11b/g/n/ax); Bluetooth Classic + BLE; Zigbee; microwave ovens; baby monitors; cordless phones; RC drones (DJI etc.)",ARCEP / EN 300 328,EU ISM 2.4 GHz
+2400.000000,2483.500000,DEU,CEPT-DEU,SRD (ISM) / AMATEUR,PRIMARY,Wi-Fi/BT/Zigbee/uW oven,5.150 5.282,"Wi-Fi 2.4 GHz; Bluetooth; Zigbee; microwave ovens; baby monitors; RC drones",BNetzA / EN 300 328,EU ISM 2.4 GHz
+2400.000000,2483.500000,GBR,CEPT-GBR,SRD (ISM) / AMATEUR,PRIMARY,Wi-Fi/BT/Zigbee/uW oven,5.150 5.282,"Wi-Fi 2.4 GHz; Bluetooth; Zigbee; microwave ovens; baby monitors; RC drones",Ofcom / EN 300 328,EU ISM 2.4 GHz
+2400.000000,2483.500000,ESP,CEPT-ESP,SRD (ISM) / AMATEUR,PRIMARY,Wi-Fi/BT/Zigbee/uW oven,5.150 5.282,"Wi-Fi 2.4 GHz; Bluetooth; Zigbee; microwave ovens",CNAF / EN 300 328,EU ISM 2.4 GHz
+2400.000000,2483.500000,ITA,CEPT-ITA,SRD (ISM) / AMATEUR,PRIMARY,Wi-Fi/BT/Zigbee/uW oven,5.150 5.282,"Wi-Fi 2.4 GHz; Bluetooth; Zigbee; microwave ovens",MIMIT / EN 300 328,EU ISM 2.4 GHz
+5150.000000,5350.000000,FRA,CEPT-FRA,SRD (Wi-Fi U-NII-1/2A),PRIMARY,Wi-Fi 5 GHz lower (indoor only),5.446A,"Wi-Fi 5 GHz (802.11a/n/ac/ax); restricted indoor",ARCEP / EN 301 893,EU Wi-Fi UNII-1/2A indoor
+5150.000000,5350.000000,DEU,CEPT-DEU,SRD (Wi-Fi U-NII-1/2A),PRIMARY,Wi-Fi 5 GHz lower (indoor only),5.446A,"Wi-Fi 5 GHz; indoor only",BNetzA / EN 301 893,EU Wi-Fi UNII-1/2A indoor
+5150.000000,5350.000000,GBR,CEPT-GBR,SRD (Wi-Fi U-NII-1/2A),PRIMARY,Wi-Fi 5 GHz lower (indoor only),5.446A,"Wi-Fi 5 GHz; indoor only",Ofcom / EN 301 893,EU Wi-Fi UNII-1/2A indoor
+5150.000000,5350.000000,ESP,CEPT-ESP,SRD (Wi-Fi U-NII-1/2A),PRIMARY,Wi-Fi 5 GHz lower (indoor only),5.446A,"Wi-Fi 5 GHz; indoor only",CNAF / EN 301 893,EU Wi-Fi UNII-1/2A indoor
+5150.000000,5350.000000,ITA,CEPT-ITA,SRD (Wi-Fi U-NII-1/2A),PRIMARY,Wi-Fi 5 GHz lower (indoor only),5.446A,"Wi-Fi 5 GHz; indoor only",MIMIT / EN 301 893,EU Wi-Fi UNII-1/2A indoor
+5925.000000,6425.000000,FRA,CEPT-FRA,SRD (Wi-Fi 6E),PRIMARY,Wi-Fi 6E lower band,5.446A,"Wi-Fi 6E (802.11ax/be); only lower 500 MHz available in EU (vs full 1.2 GHz in USA)",ARCEP décision n° 2021-1004 / ECC/DEC/(20)01,EU Wi-Fi 6E limited
+5925.000000,6425.000000,DEU,CEPT-DEU,SRD (Wi-Fi 6E),PRIMARY,Wi-Fi 6E lower band,5.446A,"Wi-Fi 6E; lower 500 MHz only",BNetzA / ECC/DEC/(20)01,EU Wi-Fi 6E limited
+5925.000000,6425.000000,GBR,CEPT-GBR,SRD (Wi-Fi 6E),PRIMARY,Wi-Fi 6E lower band,5.446A,"Wi-Fi 6E; lower 500 MHz",Ofcom / ECC/DEC/(20)01,EU Wi-Fi 6E limited
+5925.000000,6425.000000,ESP,CEPT-ESP,SRD (Wi-Fi 6E),PRIMARY,Wi-Fi 6E lower band,5.446A,"Wi-Fi 6E; lower 500 MHz",CNAF / ECC/DEC/(20)01,EU Wi-Fi 6E limited
+5925.000000,6425.000000,ITA,CEPT-ITA,SRD (Wi-Fi 6E),PRIMARY,Wi-Fi 6E lower band,5.446A,"Wi-Fi 6E; lower 500 MHz",MIMIT / ECC/DEC/(20)01,EU Wi-Fi 6E limited

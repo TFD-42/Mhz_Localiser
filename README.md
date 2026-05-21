@@ -8,24 +8,34 @@
 > **Honest disclaimer:** This is a low-cost, mobile RSSI-based approach. It gives approximate results, not GPS-grade precision. Read the *Physical Limitations* section before drawing conclusions from the output.
 
 ```
-Mhz_Localise/
-├── README.md
-├── Build/
-│   ├── rf_logger/          ← Flipper Zero FAP source (compile with fbt)
-│   │   ├── rf_logger.c
-│   │   ├── application.fam
-│   │   └── rf_logger_icon.png
-│   └── android_app/
-│       ├── www/            ← Web UI (Capacitor)
-│       │   ├── index.html
-│       │   ├── app.js
-│       │   ├── styles.css
-│       │   └── spectrum.csv  ← Bundled allocation table (~2 450 bands)
-│       └── plugin/
-│           └── FlipperSerialPlugin.java  ← Native USB serial plugin
-└── Ready_To_Go/
-    ├── RF_Triangulator.apk ← Install directly on Android
-    └── rf_logger.fap       ← Copy to Flipper SD card
+Mhz_Localiser/
+├── artifacts/              ← Ready-to-flash binaries
+│   ├── rf_logger.fap       Copy to /ext/apps/Sub-GHz/ on the Flipper SD card
+│   └── RF_Triangulator.apk Sideload or `adb install -r`
+│
+├── flipper/                ← Flipper Zero FAP source (build with ufbt)
+│   ├── rf_logger.c         logger + dynamic Manual MHz digit editor
+│   ├── application.fam     ufbt manifest
+│   └── rf_logger_icon.png
+│
+├── android/                ← Capacitor sources for the Android app
+│   ├── www/
+│   │   ├── index.html      Triangulator + Allocation List tabs
+│   │   ├── app.js          map / capture / Nelder-Mead + allocation logic
+│   │   ├── styles.css      mobile-first dark theme
+│   │   └── spectrum.csv    ~2 450 spectrum allocations (offline)
+│   └── plugin/
+│       └── FlipperSerialPlugin.java   Native USB-CDC bridge
+│
+├── spectrum_scraper/       ← Python tooling that builds spectrum.csv
+│   ├── enrich_spectrum.py  baseline → long-form CSV (EFIS optional)
+│   ├── launcher.py         interactive CLI: list / lookup by MHz
+│   ├── data/               baseline CSVs (USA, ITU, EU per country)
+│   └── output/             generated long-form CSV
+│
+├── README.md               this file
+├── SETUP.md                build and install instructions
+└── LICENSE                 MIT
 ```
 
 ## How it works
