@@ -19,12 +19,15 @@ spectrum databases.
 ```bash
 cd spectrum_scraper
 
-# Offline run: baseline only, no network calls
+# Interactive launcher: [1] list, [2] MHz lookup
+python launcher.py
+
+# Offline build of the long-form CSV (baseline only, no network)
 python enrich_spectrum.py --skip-efis \
     --baseline data/baseline_USA_EU_ITU.csv \
     --out      output/spectrum_baseline_longform.csv
 
-# Full run: enrich every band with EFIS data for all 48 CEPT countries
+# Full enrichment: every band x 48 CEPT countries via EFIS
 python enrich_spectrum.py \
     --baseline data/baseline_USA_EU_ITU.csv \
     --out      output/spectrum_enriched.csv
@@ -37,6 +40,24 @@ python enrich_spectrum.py \
 ```
 
 No third-party dependencies — pure `stdlib` (`urllib`, `csv`, `xml.etree`).
+
+## Interactive launcher
+
+`launcher.py` reads the long-form CSV and offers two modes:
+
+- **[1] List all allocations** — paginated table, filterable by country,
+  region, and source substring.
+- **[2] Look up by MHz** — accepts bare numbers (`433.92`), explicit units
+  (`433.92 MHz`, `2.4 GHz`, `868 kHz`), and ranges (`88-108 MHz`). Optional
+  country filter narrows the result.
+
+On first run the launcher bootstraps `output/spectrum_baseline_longform.csv`
+from the baseline (offline). Once you've run `enrich_spectrum.py` to produce
+`output/spectrum_enriched.csv`, the launcher prefers that file automatically.
+
+> **Note on baseline coverage** — the shipped baseline CSV is sparse: it
+> covers VLF/LF (kHz units) and SHF (>3 GHz) but has gaps in MF/HF/VHF/UHF.
+> For dense lookups in the 0.5-3000 MHz range, run the full EFIS enrichment.
 
 ## Output schema
 
