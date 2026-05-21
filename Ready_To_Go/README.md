@@ -1,11 +1,11 @@
 # Ready_To_Go — compiled artifacts
 
-This directory is meant to hold two pre-built binaries:
+Two pre-built binaries, ready to install:
 
 - `rf_logger.fap` — the Flipper Zero app (copy to `/ext/apps/Sub-GHz/` on the SD card)
 - `RF_Triangulator.apk` — the Android app (install with `adb install` or sideload)
 
-**They are not committed to this rebuild.** They have to be compiled from the sources in `Build/`:
+These are built from the sources in `../Build/`. If you want to rebuild them yourself:
 
 ## Build `rf_logger.fap`
 
@@ -23,7 +23,7 @@ Requires the official or Unleashed firmware (≥ 0.97) and `fbt`.
 The Android app is a Capacitor wrapper around the web UI in `Build/android_app/www/` plus the native plugin in `Build/android_app/plugin/`. To assemble a full Android Studio project you need to:
 
 1. Create a Capacitor project (`npm init @capacitor/app`).
-2. Copy `Build/android_app/www/*` into the project's `www/` directory.
+2. Copy `Build/android_app/www/*` into the project's `www/` directory — including `spectrum.csv` which powers the Allocation List tab.
 3. Copy `Build/android_app/plugin/FlipperSerialPlugin.java` into `android/app/src/main/java/com/mhzlocalise/rftriangulator/`.
 4. Add `usb-serial-for-android` to `android/app/build.gradle`:
    ```

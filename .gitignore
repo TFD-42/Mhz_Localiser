@@ -1,14 +1,17 @@
 # macOS
 .DS_Store
 
-# Build outputs
-build/
-dist/
+# Build outputs (the project's "Build/" directory stays tracked — it holds sources)
+**/dist/
 *.apk
 *.aab
 *.fap
 !Ready_To_Go/*.apk
 !Ready_To_Go/*.fap
+!Build/**
+
+# UFBT / Flipper SDK local artifacts
+.ufbt/
 
 # Node / Capacitor
 node_modules/

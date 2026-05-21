@@ -1,0 +1,14 @@
+App(
+    appid="rf_logger",
+    name="RF Logger",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="rf_logger_app",
+    stack_size=4 * 1024,
+    fap_category="Sub-GHz",
+    fap_icon="rf_logger_icon.png",
+    fap_icon_assets="images",
+    fap_author="Mhz_Localise",
+    fap_version="1.0",
+    fap_description="Sub-GHz RSSI logger. Streams CSV over USB and writes to SD card.",
+    requires=["gui", "subghz"],
+)

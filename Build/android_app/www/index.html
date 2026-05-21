@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>RF Triangulator</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header id="topbar">
+  <button id="menuBtn" aria-label="menu">☰</button>
+  <div id="liveReadout">
+    <div class="row"><span class="lbl">Freq</span><span id="freqVal">— MHz</span></div>
+    <div class="row"><span class="lbl">RSSI</span><span id="rssiVal">— dBm</span></div>
+    <div id="bar"><div id="barFill"></div></div>
+  </div>
+  <span id="connDot" class="dot off" title="disconnected"></span>
+</header>
+
+<nav id="tabs">
+  <button class="tab active" data-tab="map">Triangulator</button>
+  <button class="tab" data-tab="alloc">Allocation List</button>
+</nav>
+
+<main>
+  <div id="map" class="tab-panel active"></div>
+
+  <section id="allocPanel" class="tab-panel">
+    <div class="alloc-controls">
+      <label>
+        <span>Mode</span>
+        <select id="allocMode">
+          <option value="region">List by Region / Country</option>
+          <option value="mhz">List by MHz</option>
+        </select>
+      </label>
+
+      <div id="allocByRegion" class="alloc-mode">
+        <label>
+          <span>Country</span>
+          <select id="allocCountry"><option value="">(all)</option></select>
+        </label>
+        <label>
+          <span>Region</span>
+          <select id="allocRegion"><option value="">(all)</option></select>
+        </label>
+      </div>
+
+      <div id="allocByMhz" class="alloc-mode hidden">
+        <label>
+          <span>MHz value or range</span>
+          <input id="allocFreq" type="text" placeholder="e.g. 433.92 or 88-108" inputmode="decimal" />
+        </label>
+        <label>
+          <span>Country filter</span>
+          <select id="allocMhzCountry"><option value="">(all)</option></select>
+        </label>
+        <button id="allocFreqGo" class="primary">Search</button>
+      </div>
+
+      <div class="alloc-meta">
+        <span id="allocCount">0 results</span>
+        <button id="allocClear" class="secondary">Reset</button>
+      </div>
+    </div>
+
+    <div id="allocTableWrap">
+      <table id="allocTable">
+        <thead>
+          <tr>
+            <th>MHz range</th>
+            <th>Country</th>
+            <th>Region</th>
+            <th>Service</th>
+            <th>Status</th>
+            <th>Application / devices</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody id="allocTbody"></tbody>
+      </table>
+      <div id="allocEmpty" class="alloc-empty hidden"></div>
+    </div>
+  </section>
+</main>
+
+<footer id="actions">
+  <button id="captureBtn" class="primary">Capture here</button>
+  <button id="autoBtn">Auto-capture</button>
+  <button id="solveBtn">Solve</button>
+</footer>
+
+<aside id="drawer" class="hidden">
+  <div class="drawer-head">
+    <h2>RF Triangulator</h2>
+    <button id="closeDrawer">×</button>
+  </div>
+  <ul class="menu">
+    <li><button id="connectBtn">Connect Flipper</button></li>
+    <li><button id="disconnectBtn">Disconnect</button></li>
+    <li><button id="loadBtn">Load .sub / .log</button></li>
+    <li><button id="exportCsvBtn">Export CSV</button></li>
+    <li><button id="exportJsonBtn">Export JSON</button></li>
+    <li><button id="clearBtn" class="danger">Clear captures</button></li>
+  </ul>
+
+  <h3>Estimate</h3>
+  <div id="estimateBox">
+    <div>captures: <b id="estN">0</b></div>
+    <div>lat: <b id="estLat">—</b></div>
+    <div>lon: <b id="estLon">—</b></div>
+    <div>rms err: <b id="estRms">—</b> m</div>
+  </div>
+
+  <h3>Captures</h3>
+  <ol id="captureList"></ol>
+</aside>
+
+<input type="file" id="fileInput" accept=".sub,.log,.csv,.txt" style="display:none" />
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

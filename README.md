@@ -1,7 +1,7 @@
 # Mhz_Localiser
 
 
-**RF signal triangulation system** — Flipper Zero streams live RSSI over USB to an Android app that logs GPS + signal and estimates the transmitter location on a map.
+**RF signal triangulation + spectrum allocation lookup** — Flipper Zero streams live RSSI over USB to an Android app that logs GPS + signal, estimates the transmitter location on a map, and lets you look up the regulatory allocation (USA, ITU, EU per country) of any frequency you observe.
 
 
 <img width="1254" height="1254" alt="ChatGPT Image 16 mai 2026 à 03_50_03" src="https://github.com/user-attachments/assets/5aa42b1d-563e-409e-b09f-10ac508359c3" />
@@ -19,7 +19,8 @@ Mhz_Localise/
 │       ├── www/            ← Web UI (Capacitor)
 │       │   ├── index.html
 │       │   ├── app.js
-│       │   └── styles.css
+│       │   ├── styles.css
+│       │   └── spectrum.csv  ← Bundled allocation table (~2 450 bands)
 │       └── plugin/
 │           └── FlipperSerialPlugin.java  ← Native USB serial plugin
 └── Ready_To_Go/
@@ -209,7 +210,8 @@ Copy `Ready_To_Go/rf_logger.fap` to your Flipper SD card:
 
 On the Flipper: **Apps → Sub-GHz → RF Logger**
 
-- Select a frequency from the menu (or choose *Manual MHz…* to enter one).
+- Select a frequency from the menu (or choose *Manual MHz…* to dial one in).
+- *Manual MHz…* opens a digit-by-digit editor: **↑/↓** change the selected digit (cursor underline shows which one), **←/→** move the cursor across the `XXX.XX MHz` display, **OK** starts the scan, **Back** cancels. Range clamped to 300–928 MHz (CC1101 Sub-GHz).
 - The Flipper screen shows frequency, live RSSI (dBm), a signal bar, and sample count.
 - Press **OK** to toggle SD card logging on/off. Press **Back** to stop.
 
@@ -244,6 +246,21 @@ If you captured data directly on the Flipper SD card, tap ☰ → **Load .sub / 
 
 - **CSV** — one row per capture: `id, lat, lon, rssi_dbm, freq_hz, source`
 - **JSON** — full capture list + triangulation estimate
+
+## Allocation List (new)
+
+A second tab in the Android app lets you look up the regulatory allocation of any frequency without leaving the app. Useful when you spot an unexpected signal on the Flipper and want to know what's supposed to live in that band.
+
+Two modes, selectable from a dropdown:
+
+- **List by Region / Country** — pick a country (USA, ITU, FRA, DEU, GBR, ESP, ITA) and/or a region (Region 1/2, Region 3, USA, CEPT-XXX) and see every allocation row that matches. Filters are live.
+- **List by MHz** — type a value or range (`433.92`, `2.4 GHz`, `88-108 MHz`, `868 kHz`) and an optional country filter. If the value falls in a regulatory gap (e.g. military UHF), the result panel shows the closest covered bands above and below with the distance to each.
+
+Each result shows the **band**, **country**, **region**, **service** (FIXED / MOBILE / AMATEUR / SRD ISM / BROADCASTING / …), **status** (PRIMARY / Secondary), the **application** or typical devices (LoRa, GSM 900, Wi-Fi 2.4 GHz, TETRA, NFC, …), and the regulatory **source** (FCC 47 CFR 2.106, ITU Radio Regulations, ARCEP, BNetzA, Ofcom, CNAF, MIMIT, ECC/DEC, ERC/REC 70-03, etc.).
+
+The data is bundled into the APK as `spectrum.csv` — about 2 450 rows covering ITU R1/R2/R3, USA federal + non-federal, and per-country EU allocations for the bands most useful for Sub-GHz / amateur / ISM work (27 MHz CB, FM broadcast, 2m/70cm amateur, marine VHF, TETRA, 433/868/915 MHz ISM, GSM/LTE, DECT, Wi-Fi 2.4 / 5 / 6 GHz, ADS-B 1090 MHz, GNSS, …). Everything is loaded offline — no network required.
+
+The same dataset and an interactive CLI launcher (Python, stdlib only) live in a separate repo: [`mhz_allocator`](https://github.com/TFD-42) — useful if you want to query the table from a terminal or rebuild it from upstream sources (FCC table, ECC/REC 70-03, national regulators).
 
 ## Build from source
 
