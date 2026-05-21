@@ -48,7 +48,9 @@ Mhz_Localiser/
 
 <img width="709" height="1536" alt="1000722535" src="https://github.com/user-attachments/assets/6889242d-29a7-45f7-bb6f-4333b7022c85" />
 
-<img width="320" alt="RF Triangulator app — live capture and triangulation demo"src="assetsrf_triangulator_demo.gif" />
+<img width="709" height="1536" alt="list" src="https://github.com/user-attachments/assets/9017b787-0ee8-4b15-8c35-169e737cbf49" />
+
+
 
 ## RF Architecture
 
