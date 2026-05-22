@@ -21,22 +21,8 @@
 #define SAMPLE_PERIOD_MS  200u
 #define VCP_DATA_CH       1u
 #define LOG_DIR           EXT_PATH("apps_data/rf_logger")
-#define MAX_PRESETS       5
 
-typedef struct {
-    const char* label;
-    uint32_t hz;
-} FreqPreset;
-
-static const FreqPreset PRESETS[MAX_PRESETS] = {
-    {"315.00 MHz", 315000000u},
-    {"433.92 MHz", 433920000u},
-    {"868.35 MHz", 868350000u},
-    {"915.00 MHz", 915000000u},
-    {"Manual MHz...", 0u},
-};
-
-typedef enum { StateMenu, StateManualEntry, StateRunning } AppState;
+typedef enum { StateManualEntry, StateRunning } AppState;
 
 // Manual entry: edit a XXX.XX MHz value digit by digit.
 // 5 editable positions: [0]=100s [1]=10s [2]=1s . [3]=0.1 [4]=0.01
@@ -53,7 +39,6 @@ static const uint32_t MANUAL_DIGIT_HZ[MANUAL_DIGITS] = {
 
 typedef struct {
     AppState state;
-    uint8_t menu_idx;
     uint32_t freq_req_hz;
     uint32_t freq_act_hz;
     uint32_t manual_hz;      // current editable frequency in Hz
@@ -175,18 +160,6 @@ static void sample_once(RfLoggerApp* app) {
     }
 }
 
-static void draw_menu(Canvas* canvas, RfLoggerApp* app) {
-    canvas_clear(canvas);
-    canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str(canvas, 4, 12, "RF Logger - Frequency");
-    canvas_set_font(canvas, FontSecondary);
-    for(uint8_t i = 0; i < MAX_PRESETS; i++) {
-        char row[24];
-        snprintf(row, sizeof(row), "%c %s",
-                 (i == app->menu_idx) ? '>' : ' ', PRESETS[i].label);
-        canvas_draw_str(canvas, 4, 26 + i * 9, row);
-    }
-}
 
 static void draw_manual(Canvas* canvas, RfLoggerApp* app) {
     canvas_clear(canvas);
@@ -283,8 +256,7 @@ static void draw_running(Canvas* canvas, RfLoggerApp* app) {
 static void render_cb(Canvas* canvas, void* ctx) {
     RfLoggerApp* app = ctx;
     furi_mutex_acquire(app->mutex, FuriWaitForever);
-    if(app->state == StateMenu) draw_menu(canvas, app);
-    else if(app->state == StateManualEntry) draw_manual(canvas, app);
+    if(app->state == StateManualEntry) draw_manual(canvas, app);
     else draw_running(canvas, app);
     furi_mutex_release(app->mutex);
 }
@@ -304,28 +276,6 @@ static void start_running(RfLoggerApp* app, uint32_t hz) {
     }
 }
 
-static void handle_menu_input(RfLoggerApp* app, InputEvent* ev) {
-    if(ev->type != InputTypeShort) return;
-    switch(ev->key) {
-    case InputKeyUp:   if(app->menu_idx > 0) app->menu_idx--; break;
-    case InputKeyDown: if(app->menu_idx + 1 < MAX_PRESETS) app->menu_idx++; break;
-    case InputKeyOk: {
-        uint32_t hz = PRESETS[app->menu_idx].hz;
-        if(hz == 0u) {
-            // Manual MHz: open the dynamic digit editor instead of starting.
-            if(app->manual_hz < MANUAL_MIN_HZ || app->manual_hz > MANUAL_MAX_HZ) {
-                app->manual_hz = 433920000u; // sensible default inside the valid range
-            }
-            app->manual_cursor = 2; // start on the ones-of-MHz digit
-            app->state = StateManualEntry;
-        } else {
-            start_running(app, hz);
-        }
-        break;
-    }
-    default: break;
-    }
-}
 
 static void handle_manual_input(RfLoggerApp* app, InputEvent* ev) {
     bool is_short  = (ev->type == InputTypeShort);
@@ -348,9 +298,6 @@ static void handle_manual_input(RfLoggerApp* app, InputEvent* ev) {
             }
         }
         break;
-    case InputKeyBack:
-        if(is_short) app->state = StateMenu;
-        break;
     default: break;
     }
 }
@@ -362,26 +309,10 @@ static void handle_running_input(RfLoggerApp* app, InputEvent* ev) {
         app->sd_logging = !app->sd_logging;
         if(app->sd_logging) log_open(app); else log_close(app);
         break;
-    case InputKeyLeft:
-        if(app->menu_idx > 0) {
-            app->menu_idx--;
-            uint32_t hz = PRESETS[app->menu_idx].hz;
-            if(hz == 0u) hz = 433920000u;
-            subghz_retune(app, hz);
-        }
-        break;
-    case InputKeyRight:
-        if(app->menu_idx + 1 < MAX_PRESETS) {
-            app->menu_idx++;
-            uint32_t hz = PRESETS[app->menu_idx].hz;
-            if(hz == 0u) hz = 433920000u;
-            subghz_retune(app, hz);
-        }
-        break;
     case InputKeyBack:
         subghz_stop(); log_close(app);
         notification_message(app->notifications, &sequence_blink_stop);
-        app->state = StateMenu;
+        app->state = StateManualEntry;
         break;
     default: break;
     }
@@ -391,8 +322,9 @@ int32_t rf_logger_app(void* p) {
     UNUSED(p);
     RfLoggerApp* app = malloc(sizeof(RfLoggerApp));
     memset(app, 0, sizeof(*app));
-    app->state = StateMenu;
-    app->menu_idx = 1;
+    app->state = StateManualEntry;
+    app->manual_hz = 433920000u; // sensible default inside the valid range
+    app->manual_cursor = 2; // start on the ones-of-MHz digit
     app->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     app->input_queue = furi_message_queue_alloc(8, sizeof(InputEvent));
     app->viewport = view_port_alloc();
@@ -411,11 +343,9 @@ int32_t rf_logger_app(void* p) {
         FuriStatus s = furi_message_queue_get(app->input_queue, &ev, 50);
         if(s == FuriStatusOk) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(app->state == StateMenu) {
+            if(app->state == StateManualEntry) {
                 if(ev.key == InputKeyBack && ev.type == InputTypeShort) exit = true;
-                else handle_menu_input(app, &ev);
-            } else if(app->state == StateManualEntry) {
-                handle_manual_input(app, &ev);
+                else handle_manual_input(app, &ev);
             } else {
                 handle_running_input(app, &ev);
             }

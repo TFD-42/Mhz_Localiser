@@ -1,10 +1,9 @@
 # Mhz_Localiser
 
-
 **RF signal triangulation + spectrum allocation lookup** — Flipper Zero streams live RSSI over USB to an Android app that logs GPS + signal, estimates the transmitter location on a map, and lets you look up the regulatory allocation (USA, ITU, EU per country) of any frequency you observe.
 
-
 <img width="1254" height="1254" alt="ChatGPT Image 16 mai 2026 à 03_50_03" src="https://github.com/user-attachments/assets/5aa42b1d-563e-409e-b09f-10ac508359c3" />
+
 > **Honest disclaimer:** This is a low-cost, mobile RSSI-based approach. It gives approximate results, not GPS-grade precision. Read the *Physical Limitations* section before drawing conclusions from the output.
 
 ```
@@ -14,7 +13,7 @@ Mhz_Localiser/
 │   └── RF_Triangulator.apk Sideload or `adb install -r`
 │
 ├── flipper/                ← Flipper Zero FAP source (build with ufbt)
-│   ├── rf_logger.c         logger + dynamic Manual MHz digit editor
+│   ├── rf_logger.c         Manual MHz digit editor only — no presets (v2)
 │   ├── application.fam     ufbt manifest
 │   └── rf_logger_icon.png
 │
@@ -38,6 +37,18 @@ Mhz_Localiser/
 └── LICENSE                 MIT
 ```
 
+## What's new in v2
+
+| Change | Detail |
+|--------|--------|
+| **Manual frequency only** | Preset menu (315 / 433 / 868 / 915 MHz) removed. App opens directly on the digit editor at launch. |
+| **Faster startup** | No menu navigation — enter frequency and press OK immediately. |
+| **Smaller FAP** | 8.5 KB → 7.5 KB (preset table and menu renderer eliminated). |
+| **Auto-reconnect** | Android plugin reconnects automatically every 2 s if USB is lost — no need to tap Connect again. |
+| **Synced allocation panel** | Panel 2 driven entirely by the live Flipper stream — no offline frequency input required. |
+| **Compact allocation view** | Single dense table: MHz → Country → Region → Service → Status → Application → Source. No tab-swap needed. |
+| **Location permissions** | Fine + Coarse GPS permissions wired up at runtime on first launch. |
+
 ## How it works
 
 - **Flipper Zero** runs `rf_logger.fap` — a Sub-GHz RSSI logger that continuously samples signal strength on a chosen frequency and streams readings over USB as CSV.
@@ -50,8 +61,6 @@ Mhz_Localiser/
 
 <img width="709" height="1536" alt="list" src="https://github.com/user-attachments/assets/9017b787-0ee8-4b15-8c35-169e737cbf49" />
 
-
-
 ## RF Architecture
 
 ```
@@ -61,15 +70,16 @@ Mhz_Localiser/
 │   CC1101 chip  ──►  RSSI register  ──►  rf_logger.fap          │
 │   (Sub-GHz)        sampled @ 5 Hz      (FAP app)               │
 └────────────────────────────┬────────────────────────────────────┘
-                             │  USB CDC-ACM serial
-                             │  115200 baud
-                             │  CSV: ts, freq, rssi, lqi, n
+                             │  USB CDC-ACM serial (ch1)
+                             │  115200 baud, dual CDC
+                             │  CSV: ts_ms, req_hz, act_hz,
+                             │       rssi_dbm, rssi_raw, lqi, n
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Android App                                │
 │                                                                 │
-│  FlipperSerialPlugin  ──►  USB serial reader                    │
-│  (Capacitor native)        parses CSV stream                    │
+│  FlipperSerialPlugin  ──►  USB serial reader (Capacitor)        │
+│  (native Java)             parses CSV stream, auto-reconnect    │
 │                                                                 │
 │  Geolocation API      ──►  GPS coordinates                      │
 │                                                                 │
@@ -86,15 +96,31 @@ Mhz_Localiser/
 
 The CC1101 chip inside the Flipper Zero is a general-purpose Sub-GHz transceiver. Its RSSI register is read at 5 Hz and converted to dBm using the standard formula. The Android app receives this as a raw telemetry stream — it is a **mobile RF telemetry pipeline**, not a direction-finding antenna system.
 
+## Flipper app flow (v2)
+
+```
+Launch
+  └─► Manual frequency entry screen (default: 433.92 MHz)
+        Up/Down    — increment/decrement active digit
+        Left/Right — move cursor across XXX.XX MHz display
+        OK         — validate & start RSSI streaming
+        Back       — exit app
+
+Running state
+  └─► Live RSSI streamed over USB CSV to Android
+        OK   — toggle SD card logging on/off
+        Back — return to frequency entry screen
+```
+
 ## Operational Workflow
 
 Most people imagine: *"point the Flipper, app finds the source instantly."*
 The reality is **mobile statistical inference**. Here is the actual workflow:
 
 ```
-1. SCAN FREQUENCY
-   └─ Select the target frequency on the Flipper menu
-      (433.92 MHz, 868 MHz, 915 MHz, or manual entry)
+1. ENTER FREQUENCY
+   └─ Dial the target frequency digit by digit on the Flipper
+      (300–928 MHz range, 10 kHz resolution)
 
 2. VERIFY SIGNAL
    └─ Confirm RSSI is above noise floor (> -100 dBm)
@@ -186,13 +212,13 @@ Wrong `n` = systematically biased distance estimates = bad triangulation even wi
 
 | Solution                       | Method                                | Typical accuracy           | Cost          |
 |--------------------------------|---------------------------------------|----------------------------|---------------|
-| **Geo-Flip (this project)**    | RSSI trilateration, mobile            | 15–150 m depending on env. | ~$60 (Flipper + phone) |
+| **Mhz_Localiser (this project)**| RSSI trilateration, mobile           | 15–150 m depending on env. | ~$60 (Flipper + phone) |
 | KrakenSDR                      | 5-element coherent SDR phase array    | 2–10 m outdoors            | ~$500         |
 | HackRF + directional antenna   | Manual DF, SDR                        | 5–20 m with skill          | ~$350 + antenna |
 | RTL-SDR + Doppler DF           | Software Doppler shift                | 10–30 m                    | ~$30 + antenna |
 | Professional TDOA systems      | Time-difference of arrival            | <1 m                       | $5,000–$50,000 |
 
-Geo-Flip is the **lowest cost and lowest barrier** option. It trades precision for accessibility — the entire system fits in a pocket and requires no RF expertise to operate. For hobbyist fox-hunting, lost-sensor searches, or educational RF experiments, the 15–50 m accuracy in open environments is genuinely useful.
+Mhz_Localiser is the **lowest cost and lowest barrier** option. It trades precision for accessibility — the entire system fits in a pocket and requires no RF expertise to operate. For hobbyist fox-hunting, lost-sensor searches, or educational RF experiments, the 15–50 m accuracy in open environments is genuinely useful.
 
 ## Realistic Use Cases
 
@@ -211,85 +237,82 @@ Geo-Flip is the **lowest cost and lowest barrier** option. It trades precision f
 - **Surveillance or legal evidence** — far too imprecise and unvalidated for any serious application
 - **Dense urban precision** — error easily exceeds 100 m
 
-## Quick start
+## Quick Start
 
 ### Step 1 — Install the Flipper app
 
-Copy `Ready_To_Go/rf_logger.fap` to your Flipper SD card:
+Copy `artifacts/rf_logger.fap` to your Flipper SD card:
 ```
 /ext/apps/Sub-GHz/rf_logger.fap
 ```
 
 On the Flipper: **Apps → Sub-GHz → RF Logger**
 
-- Select a frequency from the menu (or choose *Manual MHz…* to dial one in).
-- *Manual MHz…* opens a digit-by-digit editor: **↑/↓** change the selected digit (cursor underline shows which one), **←/→** move the cursor across the `XXX.XX MHz` display, **OK** starts the scan, **Back** cancels. Range clamped to 300–928 MHz (CC1101 Sub-GHz).
-- The Flipper screen shows frequency, live RSSI (dBm), a signal bar, and sample count.
-- Press **OK** to toggle SD card logging on/off. Press **Back** to stop.
+- App opens directly on the **manual frequency entry** screen (433.92 MHz default).
+- **↑/↓** change the active digit · **←/→** move the cursor across `XXX.XX MHz` · **OK** starts the scan · **Back** exits.
+- Range clamped to 300–928 MHz (CC1101 Sub-GHz hardware limit).
+- In running mode: **OK** toggles SD card logging on/off · **Back** returns to frequency entry.
 
 ### Step 2 — Install the Android app
 
-Enable **Install unknown apps** in Android settings (or use ADB):
+Enable **Install unknown apps** in Android settings, or use ADB:
 ```bash
-adb install Ready_To_Go/RF_Triangulator.apk
+adb install artifacts/RF_Triangulator.apk
 ```
 
-Grant **Location** permission when prompted.
+Grant **Location** permission when prompted (required for GPS capture).
 
 ### Step 3 — Connect and capture
 
 1. Plug the Flipper into your Android phone with a USB-C cable.
 2. Open **RF Triangulator** → tap ☰ → **Connect Flipper**.
-3. Accept the USB permission dialog.
-4. The top panel mirrors the Flipper display: frequency, RSSI, signal bar.
+3. Accept the USB permission dialog. The app reconnects automatically if USB drops.
+4. The top panel mirrors the Flipper: frequency, RSSI, signal bar.
 5. Walk to a position and tap **Capture here** — the app logs GPS + live RSSI.
 6. Repeat from **3+ different positions** surrounding the suspected transmitter.
 7. The drawer shows the **triangulation estimate** with RMS error once you have 3+ captures.
 
 ### Auto-capture mode
 
-In the menu, tap **Auto-capture** to log a reading automatically at a set interval (1 s / 2 s / 5 s / 10 s) while you move around. Tap **Stop Auto** to end.
+Tap **Auto-capture** to log readings automatically at a set interval (1 s / 2 s / 5 s / 10 s) while you walk around. Tap **Stop Auto** to end.
 
 ### Import Flipper files
 
-If you captured data directly on the Flipper SD card, tap ☰ → **Load .sub / .log** to import. Supports `.sub`, `.log`, `.csv`, `.txt` with `RSSI:` and `Latitude/Longitude:` fields.
+Tap ☰ → **Load .sub / .log** to import files captured directly on the Flipper SD card. Supports `.sub`, `.log`, `.csv`, `.txt` with `RSSI:` and `Latitude/Longitude:` fields.
 
 ### Export
 
 - **CSV** — one row per capture: `id, lat, lon, rssi_dbm, freq_hz, source`
 - **JSON** — full capture list + triangulation estimate
 
-## Allocation List (new)
+## Allocation List
 
-A second tab in the Android app lets you look up the regulatory allocation of any frequency without leaving the app. Useful when you spot an unexpected signal on the Flipper and want to know what's supposed to live in that band.
+A second tab in the Android app lets you look up the regulatory allocation of any frequency without leaving the app — driven live from the Flipper stream, no manual input needed.
 
-Two modes, selectable from a dropdown:
+Each result shows: **band · country · region · service** (FIXED / MOBILE / AMATEUR / SRD ISM / BROADCASTING / …) · **status** (PRIMARY / Secondary) · **application** (LoRa, GSM 900, Wi-Fi 2.4 GHz, TETRA, NFC, …) · **source** (FCC 47 CFR 2.106, ITU RR, ARCEP, BNetzA, Ofcom, CNAF, ECC/DEC, ERC/REC 70-03, …).
 
-- **List by Region / Country** — pick a country (USA, ITU, FRA, DEU, GBR, ESP, ITA) and/or a region (Region 1/2, Region 3, USA, CEPT-XXX) and see every allocation row that matches. Filters are live.
-- **List by MHz** — type a value or range (`433.92`, `2.4 GHz`, `88-108 MHz`, `868 kHz`) and an optional country filter. If the value falls in a regulatory gap (e.g. military UHF), the result panel shows the closest covered bands above and below with the distance to each.
+Data is bundled into the APK as `spectrum.csv` — ~2 450 rows covering ITU R1/R2/R3, USA federal + non-federal, and per-country EU allocations. Fully offline, no network required.
 
-Each result shows the **band**, **country**, **region**, **service** (FIXED / MOBILE / AMATEUR / SRD ISM / BROADCASTING / …), **status** (PRIMARY / Secondary), the **application** or typical devices (LoRa, GSM 900, Wi-Fi 2.4 GHz, TETRA, NFC, …), and the regulatory **source** (FCC 47 CFR 2.106, ITU Radio Regulations, ARCEP, BNetzA, Ofcom, CNAF, MIMIT, ECC/DEC, ERC/REC 70-03, etc.).
+## Build from Source
 
-The data is bundled into the APK as `spectrum.csv` — about 2 450 rows covering ITU R1/R2/R3, USA federal + non-federal, and per-country EU allocations for the bands most useful for Sub-GHz / amateur / ISM work (27 MHz CB, FM broadcast, 2m/70cm amateur, marine VHF, TETRA, 433/868/915 MHz ISM, GSM/LTE, DECT, Wi-Fi 2.4 / 5 / 6 GHz, ADS-B 1090 MHz, GNSS, …). Everything is loaded offline — no network required.
-
-The same dataset and an interactive CLI launcher (Python, stdlib only) live in a separate repo: [`mhz_allocator`](https://github.com/TFD-42) — useful if you want to query the table from a terminal or rebuild it from upstream sources (FCC table, ECC/REC 70-03, national regulators).
-
-## Build from source
-
-### Flipper FAP
-
-Requires the [Flipper Zero firmware repo](https://github.com/flipperdevices/flipperzero-firmware) with `fbt`.
+### Flipper FAP (ufbt — recommended)
 
 ```bash
-cp -r Build/rf_logger flipper-firmware/applications_user/
-cd flipper-firmware
-./fbt fap_rf_logger
-# Output: build/f7-firmware-D/.extapps/rf_logger.fap
+pip install ufbt
+cd flipper/
+ufbt build
+# Output: ~/.ufbt/build/rf_logger.fap
+
+# Deploy directly to connected Flipper
+ufbt launch
 ```
 
-Flash directly to device:
+### Flipper FAP (fbt — full firmware repo)
+
 ```bash
-./fbt launch APPSRC=applications_user/rf_logger
+cp -r flipper/ flipper-firmware/applications_user/rf_logger
+cd flipper-firmware
+./fbt fap_rf_logger
 ```
 
 ### Android APK
@@ -297,6 +320,7 @@ Flash directly to device:
 Requires Android Studio, Java 17+, Node.js 18+.
 
 ```bash
+cd android/
 npm install
 npx cap sync android
 cd android
@@ -304,11 +328,11 @@ cd android
 # Output: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Stack: **Capacitor** (web-native bridge) · **usb-serial-for-android** (CDC-ACM) · **Leaflet** (OpenStreetMap)
+Stack: **Capacitor** · **usb-serial-for-android** (CDC-ACM) · **Leaflet** (OpenStreetMap)
 
 ## USB Serial Protocol
 
-Flipper streams CSV over USB CDC-ACM at **115200 baud**:
+Flipper streams CSV over USB CDC-ACM channel 1 at **115200 baud**:
 
 ```
 # RF_LOGGER_DBG req=433920000 act=433920000
@@ -327,16 +351,24 @@ ts_ms,req_hz,act_hz,rssi_dbm,rssi_raw,lqi,n
 | `lqi`      | uint8   | Link Quality Indicator |
 | `n`        | uint32  | Sample counter |
 
-Sample rate: **200 ms (5 Hz)**. Frequency is auto-detected by the Android app from the `req_hz` field — no manual input needed.
+Sample rate: **200 ms (5 Hz)**. The Android app auto-detects frequency from `req_hz` — no manual input on the phone side needed.
+
+## Security
+
+- No API keys, tokens, or credentials in this codebase.
+- No hardcoded IP addresses — all communication is local USB only.
+- USB permission via standard Android intent (`UsbManager.requestPermission`).
+- Location permission requested at runtime only.
+- No outbound network requests from the app (map tiles load from OpenStreetMap via WebView only).
 
 ## Requirements
 
-| Component   | Requirement |
-|-------------|-------------|
+| Component    | Requirement |
+|--------------|-------------|
 | Flipper Zero | Firmware 0.97+ (official or Unleashed) |
 | Android      | 8.0+ (API 26), USB OTG support |
 | USB cable    | USB-C to USB-C (or USB-A OTG adapter) |
-| GPS          | Required for automatic capture; indoor = poor accuracy |
+| GPS          | Required for capture; indoor = poor accuracy |
 
 ## License
 
