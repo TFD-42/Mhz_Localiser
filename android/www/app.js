@@ -83,6 +83,8 @@ function handleSerialLine(line) {
   state.rssi   = rssi;
   if (isFinite(reqHz)) state.freqHz = reqHz;
   renderReadout();
+  // Auto-sync allocation list with live frequency
+  if (isFinite(reqHz)) syncAllocByFreq(reqHz);
 }
 
 function renderReadout() {
@@ -640,4 +642,25 @@ renderCaptureList();
     el.classList.remove('hidden');
   }
   function hideEmpty() { $('allocEmpty').classList.add('hidden'); }
+
+  /* ---- Live sync from Flipper stream --------------------------------- */
+  window.syncAllocByFreq = function(freqHz) {
+    if (allocations.length === 0) return; // Not loaded yet
+    const freqMhz = freqHz / 1e6;
+    const matches = allocations.filter((a) => a.freq_low_mhz <= freqMhz && freqMhz <= a.freq_high_mhz);
+    // Auto-switch to allocation tab and display matches
+    const allocTabBtn = $$('#tabs .tab').find(btn => btn.dataset.tab === 'alloc');
+    const mapTabBtn = $$('#tabs .tab').find(btn => btn.dataset.tab === 'map');
+    if (allocTabBtn && mapTabBtn && !allocTabBtn.classList.contains('active')) {
+      // Only auto-switch if currently on map tab
+      allocTabBtn.classList.add('active');
+      mapTabBtn.classList.remove('active');
+      tabPanels.alloc.classList.add('active');
+      tabPanels.map.classList.remove('active');
+      if (typeof map !== 'undefined' && map.invalidateSize) {
+        setTimeout(() => map.invalidateSize(), 50);
+      }
+    }
+    renderTable(matches);
+  };
 })();
