@@ -5,6 +5,35 @@ All notable changes to Mhz_Localiser are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow semantic-ish versioning tied to the FAP/APK version.
 
+## [Unreleased] - 2026-09-29
+
+### Added
+- **spectrum.csv enriched (+31 rows)** — new entries from `rf_reference.db` covering:
+  - Switzerland (OFCOM CH / BAKOM) allocations from Swiss NFAP 2026 (1 Jan 2026 edition):
+    433 MHz ISM (3 sub-profiles: 10 mW <10% DC, 1 mW 100% DC, 500 mW ≤1% DC),
+    868 MHz SRD bands (868.0–868.6 MHz 25 mW; 869.4–869.65 MHz 500 mW),
+    Wi-Fi 2.4 / 5 / 6E (5945–6425 MHz via RIR1010-11 / ECC/DEC/(20)01).
+  - 300–390 MHz full coverage for CH/EU:
+    312–315 MHz mobile MIL, 315–322 MHz mobile MIL,
+    322–328.6 MHz radio astronomy + MIL, **328.6–335.4 MHz ILS glide slope** (ICAO Annex 10),
+    335.4–380 MHz MIL+UWB, **380–385 MHz TETRA uplink** (emergency services ERC/DEC/(01)19),
+    385–387 MHz PPDR tuning range, 387–390 MHz MIL+UWB.
+  - **7 RF anomaly/attack detection signatures** (tagged `[ANOMALY]`) with per-metric
+    alert thresholds: Wi-Fi broadband jamming, spot jamming, BLE advertising flood,
+    BLE/2.4 GHz jamming, rogue AP proximity indicator, deauth flood (RF+protocol),
+    unregistered strong signal.
+- **`rf_reference.db`** — full SQLite reference database added to
+  `spectrum_scraper/data/` with tables `products`, `rf_profiles`, `sources`,
+  `regulatory_notes`, `research_log`, `anomaly_signatures`, `anomaly_thresholds`.
+  Sources: Great Scott Gadgets official docs, IEEE 802.11-2020, Bluetooth SIG Core Spec 5.4,
+  ETSI EN 300 220 / 300 328 / 301 893, ECC/CEPT decisions, FCC CFR 47, Swiss NFAP 2026,
+  ETSI TS 100 392-15 (TETRA), ICAO Annex 10.
+
+### Changed
+- spectrum.csv: 2449 → 2480 rows (31 new, zero duplicates removed).
+
+---
+
 ## [2.1] - 2026-08-13
 
 ### Added
