@@ -5,12 +5,13 @@
 ![Platform: Flipper Zero](https://img.shields.io/badge/platform-Flipper%20Zero-FF8200)
 ![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
 ![Link: USB · BLE](https://img.shields.io/badge/link-USB%20%C2%B7%20BLE-5A29E4?logo=bluetooth&logoColor=white)
-![Spectrum DB: offline](https://img.shields.io/badge/spectrum%20DB-offline-2ea043)
+![Spectrum DB: offline](https://img.shields.io/badge/spectrum%20DB-2%2C967%20rows-2ea043)
+![Rolling scan: 300–928 MHz](https://img.shields.io/badge/rolling%20scan-300–928%20MHz-FF8200)
 ![Status: beta](https://img.shields.io/badge/status-beta-yellow)
 
 **RF signal triangulation + spectrum allocation lookup** — Flipper Zero streams live RSSI over **USB or Bluetooth LE** to an Android app that logs GPS + signal, estimates the transmitter location on a map, and lets you look up the regulatory allocation (USA, ITU, EU per country) of any frequency you observe.
 
-**Contents:** [How it works](#how-it-works) · [What's new in v2.1](#whats-new-in-v21) · [Operational workflow](#operational-workflow) · [Field validation](#field-validation) · [Physical limitations](#physical-limitations) · [vs. real RF gear](#comparison-with-real-rf-equipment) · [Use cases](#realistic-use-cases) · [Quick start](#quick-start) · [Allocation list](#allocation-list) · [Build from source](#build-from-source) · [Data protocol](#data-protocol-usb--ble)
+**Contents:** [How it works](#how-it-works) · [What's new in v2.2](#whats-new-in-v22) · [What's new in v2.1](#whats-new-in-v21) · [Operational workflow](#operational-workflow) · [Field validation](#field-validation) · [Physical limitations](#physical-limitations) · [vs. real RF gear](#comparison-with-real-rf-equipment) · [Use cases](#realistic-use-cases) · [Quick start](#quick-start) · [Allocation list](#allocation-list) · [Roll Scan](#roll-scan) · [Build from source](#build-from-source) · [Data protocol](#data-protocol-usb--ble)
 
 <img width="1254" height="1254" alt="ChatGPT Image 16 mai 2026 à 03_50_03" src="https://github.com/user-attachments/assets/5aa42b1d-563e-409e-b09f-10ac508359c3" />
 
@@ -23,16 +24,16 @@ Mhz_Localiser/
 │   └── RF_Triangulator.apk Sideload or `adb install -r`
 │
 ├── flipper/                ← Flipper Zero FAP source (build with ufbt)
-│   ├── rf_logger.c         Manual MHz digit editor only — no presets (v2)
+│   ├── rf_logger.c         Digit editor + DB browser + rolling scan (v2.2)
 │   ├── application.fam     ufbt manifest
 │   └── rf_logger_icon.png
 │
 ├── android/                ← Capacitor sources for the Android app
 │   ├── www/
-│   │   ├── index.html      Triangulator + Allocation List tabs
-│   │   ├── app.js          map / capture / Nelder-Mead + allocation logic
+│   │   ├── index.html      Triangulator + Allocation List + Roll Scan tabs
+│   │   ├── app.js          map / capture / Nelder-Mead + allocation + roll scan
 │   │   ├── styles.css      mobile-first dark theme
-│   │   └── spectrum.csv    ~2 450 spectrum allocations (offline)
+│   │   └── spectrum.csv    2 967 spectrum allocations — USA/EU/ITU/CH (offline)
 │   └── plugin/
 │       ├── FlipperSerialPlugin.java   Native USB-CDC bridge
 │       └── FlipperBlePlugin.java      Native Bluetooth-LE bridge (GATT serial)
@@ -47,6 +48,16 @@ Mhz_Localiser/
 ├── SETUP.md                build and install instructions
 └── LICENSE                 MIT
 ```
+
+## What's new in v2.2
+
+| Change | Detail |
+|--------|--------|
+| **Frequency DB browser** | Press **→** on the last digit of the manual screen to open a built-in list of 35 pre-loaded frequencies: ISM/SRD bands, LoRa, TPMS/RKE, PMR446, aviation, Polycom, GSM-R, radiosonde. Select an entry → loaded directly into the manual screen. |
+| **Switzerland (CH) section** | Dedicated CH/OFCOM entries in the DB: Polycom TETRAPOL 380/390 MHz, GSM-R SBB 877/922 MHz, BAKOM SRD 433/868/869 MHz, and more. |
+| **Rolling spectrum scan** | Select `▶ START ROLL SCAN` at the top of the DB list to sweep **300–928 MHz in 1 MHz steps**, 2 s dwell per step (extended to 3 s for medium signals). Signals are classified **SKIP** (< −100 dBm) / **MED** (−100 to −80 dBm) / **STRONG** (> −80 dBm) and streamed as `ROLL,…` lines. |
+| **Roll Scan APK tab** | Third tab in the Android app receives the rolling scan stream and displays a sortable table of all detected frequencies with Avg RSSI, Min RSSI, sample count, and signal class. One tap on **Tune** loads any frequency directly into the Triangulator. |
+| **spectrum.csv +487 rows** | 2,480 → **2,967 entries**. Added 59 CH/OFCOM entries (Armée Suisse, Polycom TETRAPOL, GSM-R SBB, ADS-B, DME Skyguide, GNSS, bandes militaires). |
 
 ## What's new in v2.1
 
@@ -123,21 +134,35 @@ Mhz_Localiser/
 
 The CC1101 chip inside the Flipper Zero is a general-purpose Sub-GHz transceiver. Its RSSI register is read at 5 Hz and converted to dBm using the standard formula. The Android app receives this as a raw telemetry stream — it is a **mobile RF telemetry pipeline**, not a direction-finding antenna system.
 
-## Flipper app flow (v2)
+## Flipper app flow (v2.2)
 
 ```
 Launch
   └─► Manual frequency entry screen (default: 433.92 MHz)
         Up/Down    — increment/decrement active digit
         Left/Right — move cursor across XXX.XX MHz display
+        Right (at last digit) — open Frequency DB list
         OK         — validate & start RSSI streaming
         Back       — exit app
 
-Running state
+Frequency DB list
+  └─► Scrollable list of 35 pre-loaded frequencies + CH section
+        Up/Down — scroll
+        OK      — load selected frequency into manual screen
+        Top entry (▶ START ROLL SCAN) → starts rolling scan
+        Back    — return to manual screen
+
+Running state (manual frequency)
   └─► Live RSSI streamed over USB + BLE CSV to Android
         Status line shows BT:off / BT:adv / BT:ok
         OK   — toggle SD card logging on/off
         Back — return to frequency entry screen
+
+Rolling scan (300–928 MHz)
+  └─► Sweeps 1 MHz per step, 2 s base dwell (3 s for MED signals)
+        RSSI averaged over 10 samples per step
+        Emits ROLL,… lines to USB + BLE stream
+        Back — stop scan and return to frequency entry screen
 ```
 
 > **Bluetooth note:** enable **Settings → Bluetooth** on the Flipper so the app can advertise. Keep the official Flipper mobile app closed while connected here — only one BLE central can hold the link at a time.
@@ -330,7 +355,22 @@ A second tab in the Android app lets you look up the regulatory allocation of an
 
 Each result shows: **band · country · region · service** (FIXED / MOBILE / AMATEUR / SRD ISM / BROADCASTING / …) · **status** (PRIMARY / Secondary) · **application** (LoRa, GSM 900, Wi-Fi 2.4 GHz, TETRA, NFC, …) · **source** (FCC 47 CFR 2.106, ITU RR, ARCEP, BNetzA, Ofcom, CNAF, ECC/DEC, ERC/REC 70-03, …).
 
-Data is bundled into the APK as `spectrum.csv` — ~2 450 rows covering ITU R1/R2/R3, USA federal + non-federal, and per-country EU allocations. Fully offline, no network required.
+Data is bundled into the APK as `spectrum.csv` — **2,967 rows** covering ITU R1/R2/R3, USA federal + non-federal, per-country EU allocations, and **59 Swiss (CH/OFCOM)** entries including Armée Suisse military bands, Polycom TETRAPOL, GSM-R SBB, ADS-B, DME, and GNSS. Fully offline, no network required.
+
+## Roll Scan
+
+The third tab (**Roll Scan**) receives the rolling sweep stream from the Flipper and builds a frequency map of everything active in the 300–928 MHz range.
+
+| Column | Description |
+|--------|-------------|
+| Freq (MHz) | Detected frequency |
+| Avg RSSI | Average signal strength over dwell period |
+| Min RSSI | Strongest single sample seen |
+| Samples | Number of CC1101 RSSI samples taken |
+| Signal | STRONG (> −80 dBm) / MED (−100 to −80 dBm) / SKIP |
+| Action | **Tune** — loads the frequency into the Triangulator tab |
+
+Use the **MED+ / All / STRONG only** filter buttons to narrow the table. Results are sorted strongest-first; up to 500 frequencies shown. Tap **Tune** on any row to set that frequency on the Flipper and begin triangulation without leaving the app.
 
 ## Build from Source
 
@@ -373,7 +413,9 @@ Both native bridges (`FlipperSerialPlugin.java`, `FlipperBlePlugin.java`) must b
 
 ## Data Protocol (USB + BLE)
 
-Flipper streams the **same CSV** over USB CDC-ACM channel 1 at **115200 baud** and over **Bluetooth LE** (GATT serial service `0000fe60-…`, data on the TX characteristic `0000fe61-…` via indications). The Android side parses both identically:
+Flipper streams over USB CDC-ACM channel 1 at **115200 baud** and over **Bluetooth LE** (GATT serial service `0000fe60-…`, TX characteristic `0000fe61-…` via indications). The Android side parses both identically.
+
+### Normal RSSI stream
 
 ```
 # RF_LOGGER_DBG req=433920000 act=433920000
@@ -392,7 +434,28 @@ ts_ms,req_hz,act_hz,rssi_dbm,rssi_raw,lqi,n
 | `lqi`      | uint8   | Link Quality Indicator |
 | `n`        | uint32  | Sample counter |
 
-Sample rate: **200 ms (5 Hz)**. The Android app auto-detects frequency from `req_hz` — no manual input on the phone side needed. BLE notify packets are reassembled by newline, so line framing is transport-independent.
+Sample rate: **200 ms (5 Hz)**. The Android app auto-detects frequency from `req_hz`.
+
+### Rolling scan stream
+
+```
+# RF_LOGGER_ROLL start=300000000 step=1000000 max=928000000
+ROLL,ts_ms,freq_hz,rssi_avg,rssi_min,samples,flag
+ROLL,12345,433920000,-87,-84,10,MED
+ROLL,14345,434920000,-105,-102,10,SKIP
+ROLL,18345,868000000,-76,-72,10,STRONG
+```
+
+| Column     | Type   | Description |
+|------------|--------|-------------|
+| `ts_ms`    | uint64 | Uptime ms at end of dwell |
+| `freq_hz`  | uint32 | Swept frequency Hz |
+| `rssi_avg` | int    | Average dBm over dwell (10 samples) |
+| `rssi_min` | int    | Best (lowest) dBm sample seen |
+| `samples`  | uint16 | Number of RSSI samples taken |
+| `flag`     | string | `STRONG` / `MED` / `SKIP` |
+
+The Android Roll Scan tab detects the `# RF_LOGGER_ROLL` header and switches to roll-parsing mode. BLE packet reassembly is newline-based, so framing is transport-independent.
 
 ## Security
 

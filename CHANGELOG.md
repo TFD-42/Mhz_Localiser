@@ -5,42 +5,32 @@ All notable changes to Mhz_Localiser are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow semantic-ish versioning tied to the FAP/APK version.
 
-## [Unreleased] - 2026-09-30
+## [2.2] - 2026-10-01
 
 ### Added
-- **FAP — Frequency DB browser** (`StateDbList`):
-  - Appuyer Right sur le dernier digit de l'écran Manuel ouvre la liste de fréquences.
-  - 35 entrées pré-chargées : ISM/SRD, LoRa, TPMS/RKE, alarms, PMR446, Polycom CH, GSM-R SBB, Radiosonde…
-  - Section **CH (Suisse)** dédiée : Polycom TETRAPOL 380/390 MHz, GSM-R SBB 877/922 MHz, BAKOM SRD 433/868/869 MHz.
-  - Navigation Up/Down, OK pour charger la fréquence dans l'écran Manuel, Back pour revenir.
-  - Scrollbar latérale, highlight inversé sur la sélection.
-- **spectrum.csv enrichi (+487 entrées)** depuis Flipper_Zero_RF_DataSet :
-  - **59 entrées CH/OFCOM** couvrant 280–1100 MHz : Polycom TETRAPOL, GSM-R, LoRa, SRD, TPMS, DTT extinct, bandes militaires Armée Suisse, GNSS, ADS-B/SSR, DME Skyguide…
-  - 437 nouvelles entrées FR/DE/UK/IT/ES/CN/RU/US/ITU comblant les trous de couverture.
-  - Total : 2 967 lignes (était 2 480).
-- **spectrum.csv enriched (+31 rows)** — new entries from `rf_reference.db` covering:
-  - Switzerland (OFCOM CH / BAKOM) allocations from Swiss NFAP 2026 (1 Jan 2026 edition):
-    433 MHz ISM (3 sub-profiles: 10 mW <10% DC, 1 mW 100% DC, 500 mW ≤1% DC),
-    868 MHz SRD bands (868.0–868.6 MHz 25 mW; 869.4–869.65 MHz 500 mW),
-    Wi-Fi 2.4 / 5 / 6E (5945–6425 MHz via RIR1010-11 / ECC/DEC/(20)01).
-  - 300–390 MHz full coverage for CH/EU:
-    312–315 MHz mobile MIL, 315–322 MHz mobile MIL,
-    322–328.6 MHz radio astronomy + MIL, **328.6–335.4 MHz ILS glide slope** (ICAO Annex 10),
-    335.4–380 MHz MIL+UWB, **380–385 MHz TETRA uplink** (emergency services ERC/DEC/(01)19),
-    385–387 MHz PPDR tuning range, 387–390 MHz MIL+UWB.
-  - **7 RF anomaly/attack detection signatures** (tagged `[ANOMALY]`) with per-metric
-    alert thresholds: Wi-Fi broadband jamming, spot jamming, BLE advertising flood,
-    BLE/2.4 GHz jamming, rogue AP proximity indicator, deauth flood (RF+protocol),
-    unregistered strong signal.
-- **`rf_reference.db`** — full SQLite reference database added to
-  `spectrum_scraper/data/` with tables `products`, `rf_profiles`, `sources`,
-  `regulatory_notes`, `research_log`, `anomaly_signatures`, `anomaly_thresholds`.
-  Sources: Great Scott Gadgets official docs, IEEE 802.11-2020, Bluetooth SIG Core Spec 5.4,
-  ETSI EN 300 220 / 300 328 / 301 893, ECC/CEPT decisions, FCC CFR 47, Swiss NFAP 2026,
-  ETSI TS 100 392-15 (TETRA), ICAO Annex 10.
+- **FAP — Frequency DB browser** (`StateDbList`): press **→** on the last digit of the
+  manual screen to open a scrollable list of 35 pre-loaded frequencies.
+  - ISM/SRD, LoRa 868, TPMS/RKE 315/433, PMR446, aviation (VHF/UHF), radiosonde, Polycom CH, GSM-R SBB.
+  - Dedicated **CH (Switzerland)** section: Polycom TETRAPOL 380/390 MHz, GSM-R SBB 877/922 MHz,
+    BAKOM SRD 433/868/869 MHz.
+  - Select entry → loaded directly into manual screen; top sentinel entry starts rolling scan.
+- **FAP — Rolling spectrum scan** (`StateRolling`): sweeps 300–928 MHz in 1 MHz steps.
+  - 2 s base dwell per step; extended to 3 s for MED signals (−100 to −80 dBm).
+  - RSSI averaged over 10 samples; classifies as SKIP / MED / STRONG.
+  - Streams `# RF_LOGGER_ROLL` header + `ROLL,ts_ms,freq_hz,rssi_avg,rssi_min,samples,flag` lines.
+- **Android — Roll Scan tab** (3rd tab): receives rolling scan stream, displays sortable table
+  of detected frequencies with Avg RSSI, Min RSSI, samples, signal class.
+  - Filter buttons: MED+ / All / STRONG only.
+  - **Tune** button on each row loads that frequency into the Triangulator tab.
+- **spectrum.csv +487 rows** (2,480 → 2,967 total):
+  - **59 CH/OFCOM entries** (280–1100 MHz): Polycom TETRAPOL, GSM-R SBB, LoRa, SRD,
+    Armée Suisse military bands, GNSS, ADS-B/SSR, DME Skyguide, TPMS.
+  - 437 additional FR/DE/UK/IT/ES/CN/RU/US/ITU entries filling coverage gaps.
 
 ### Changed
-- spectrum.csv: 2449 → 2480 rows (31 new, zero duplicates removed).
+- README updated for v2.2: new What's new section, updated file tree, app flow,
+  Roll Scan section, and ROLL protocol documentation.
+- spectrum.csv: 2,480 → 2,967 rows.
 
 ---
 
@@ -96,6 +86,7 @@ and this project aims to follow semantic-ish versioning tied to the FAP/APK vers
 - Offline spectrum allocation lookup (~2,450 rows: ITU R1/R2/R3, USA federal + non-federal,
   per-country EU) bundled as `spectrum.csv`, with the Python `spectrum_scraper` tooling.
 
+[2.2]: https://github.com/TFD-42/Mhz_Localiser/releases
 [2.1]: https://github.com/TFD-42/Mhz_Localiser/releases
 [2.0]: https://github.com/TFD-42/Mhz_Localiser/releases
 [1.0]: https://github.com/TFD-42/Mhz_Localiser/releases
