@@ -5,9 +5,19 @@ All notable changes to Mhz_Localiser are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow semantic-ish versioning tied to the FAP/APK version.
 
-## [Unreleased] - 2026-09-29
+## [Unreleased] - 2026-09-30
 
 ### Added
+- **FAP — Frequency DB browser** (`StateDbList`):
+  - Appuyer Right sur le dernier digit de l'écran Manuel ouvre la liste de fréquences.
+  - 35 entrées pré-chargées : ISM/SRD, LoRa, TPMS/RKE, alarms, PMR446, Polycom CH, GSM-R SBB, Radiosonde…
+  - Section **CH (Suisse)** dédiée : Polycom TETRAPOL 380/390 MHz, GSM-R SBB 877/922 MHz, BAKOM SRD 433/868/869 MHz.
+  - Navigation Up/Down, OK pour charger la fréquence dans l'écran Manuel, Back pour revenir.
+  - Scrollbar latérale, highlight inversé sur la sélection.
+- **spectrum.csv enrichi (+487 entrées)** depuis Flipper_Zero_RF_DataSet :
+  - **59 entrées CH/OFCOM** couvrant 280–1100 MHz : Polycom TETRAPOL, GSM-R, LoRa, SRD, TPMS, DTT extinct, bandes militaires Armée Suisse, GNSS, ADS-B/SSR, DME Skyguide…
+  - 437 nouvelles entrées FR/DE/UK/IT/ES/CN/RU/US/ITU comblant les trous de couverture.
+  - Total : 2 967 lignes (était 2 480).
 - **spectrum.csv enriched (+31 rows)** — new entries from `rf_reference.db` covering:
   - Switzerland (OFCOM CH / BAKOM) allocations from Swiss NFAP 2026 (1 Jan 2026 edition):
     433 MHz ISM (3 sub-profiles: 10 mW <10% DC, 1 mW 100% DC, 500 mW ≤1% DC),

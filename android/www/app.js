@@ -127,7 +127,28 @@ for (const [name, bridge] of Object.entries(Bridges)) {
 const SMOOTH_ALPHA = 0.3; // EMA at 5 Hz → ~0.6 s time constant
 
 function handleSerialLine(line) {
-  if (!line || line.startsWith('#') || line.startsWith('ts_ms')) return;
+  if (!line) return;
+  // Rolling scan header — update roll panel status
+  if (line.startsWith('# RF_LOGGER_ROLL')) {
+    rollScanStart();
+    return;
+  }
+  // Rolling data line: ROLL,ts_ms,freq_hz,rssi_avg,rssi_min,samples,flag
+  if (line.startsWith('ROLL,')) {
+    const p = line.split(',');
+    if (p.length >= 7 && p[1] !== 'ts_ms') {
+      rollHandleLine({
+        ts:      parseInt(p[1], 10),
+        freqHz:  parseInt(p[2], 10),
+        rssiAvg: parseInt(p[3], 10),
+        rssiMin: parseInt(p[4], 10),
+        samples: parseInt(p[5], 10),
+        flag:    p[6].trim(),
+      });
+    }
+    return;
+  }
+  if (line.startsWith('#') || line.startsWith('ts_ms')) return;
   // ts_ms,req_hz,act_hz,rssi_dbm,rssi_raw,lqi,n
   const parts = line.split(',');
   if (parts.length < 4) return;
@@ -677,7 +698,7 @@ if (state.captures.length) {
 
   /* ---- Tab switching ------------------------------------------------- */
   const tabs       = $$('#tabs .tab');
-  const tabPanels  = { map: $('map'), alloc: $('allocPanel') };
+  const tabPanels  = { map: $('map'), alloc: $('allocPanel'), roll: $('rollPanel') };
   let allocLoaded  = false;
 
   tabs.forEach((btn) => {
@@ -962,4 +983,160 @@ if (state.captures.length) {
     const matches = allocations.filter((a) => a.freq_low_mhz <= freqMhz && freqMhz <= a.freq_high_mhz);
     renderTable(matches);
   };
+})();
+
+/* ===================================================================== */
+/* Roll Scan tab                                                         */
+/* ===================================================================== */
+(function () {
+  const ROLL_MIN_HZ = 300e6;
+  const ROLL_MAX_HZ = 928e6;
+
+  /* State */
+  const rollHits = [];   // {freqHz, rssiAvg, rssiMin, samples, flag, ts}
+  let rollRunning  = false;
+  let rollLastFreq = 0;
+  let rollFilter   = 'med'; // 'all' | 'med' | 'strong'
+
+  /* DOM */
+  const status      = document.getElementById('rollStatus');
+  const progressBar = document.getElementById('rollProgressBar');
+  const countEl     = document.getElementById('rollCount');
+  const freqCurEl   = document.getElementById('rollFreqCur');
+  const tbody       = document.getElementById('rollTbody');
+  const emptyEl     = document.getElementById('rollEmpty');
+  const filterBtns  = Array.from(document.querySelectorAll('.roll-filter[data-filter]'));
+
+  /* Tab init (wired up by the existing tab-switch code in the main IIFE) */
+  /* We expose handlers on window so the main IIFE can find them */
+  window.rollScanStart = function () {
+    rollRunning = true;
+    status.textContent = 'Rolling scan in progress…';
+    status.className   = 'roll-status running';
+    progressBar.style.width = '0%';
+    rollLastFreq = ROLL_MIN_HZ;
+    updateProgress(ROLL_MIN_HZ);
+  };
+
+  window.rollHandleLine = function (entry) {
+    if (!rollRunning) {
+      rollRunning = true;
+      status.textContent = 'Rolling scan in progress…';
+      status.className   = 'roll-status running';
+    }
+
+    rollLastFreq = entry.freqHz;
+    updateProgress(entry.freqHz);
+
+    // Deduplicate: same freq → keep the stronger average
+    const existing = rollHits.findIndex(h => h.freqHz === entry.freqHz);
+    if (existing >= 0) {
+      if (entry.rssiAvg > rollHits[existing].rssiAvg) rollHits[existing] = entry;
+    } else {
+      rollHits.push(entry);
+    }
+
+    // Check if scan completed (reached max)
+    if (entry.freqHz >= ROLL_MAX_HZ - 1e6) {
+      rollRunning = false;
+      status.textContent = `Scan complete — ${countVisible()} hits found`;
+      status.className   = 'roll-status done';
+      progressBar.style.width = '100%';
+    }
+
+    renderRollTable();
+  };
+
+  function updateProgress(hz) {
+    const pct = Math.round((hz - ROLL_MIN_HZ) / (ROLL_MAX_HZ - ROLL_MIN_HZ) * 100);
+    progressBar.style.width = pct + '%';
+    freqCurEl.textContent = (hz / 1e6).toFixed(3) + ' MHz';
+  }
+
+  function passesFilter(entry) {
+    if (rollFilter === 'strong') return entry.flag === 'STRONG';
+    if (rollFilter === 'med')    return entry.flag === 'MED' || entry.flag === 'STRONG';
+    return true; // 'all'
+  }
+
+  function countVisible() {
+    return rollHits.filter(passesFilter).length;
+  }
+
+  function renderRollTable() {
+    const visible = rollHits.filter(passesFilter)
+      .sort((a, b) => b.rssiAvg - a.rssiAvg); // strongest first
+
+    countEl.textContent = visible.length + ' hit' + (visible.length === 1 ? '' : 's');
+
+    if (!visible.length) {
+      tbody.innerHTML = '';
+      emptyEl.style.display = 'block';
+      emptyEl.textContent = rollRunning
+        ? 'Scanning… no signal yet in the selected filter.'
+        : 'No results. Try "All" filter or start a new scan.';
+      return;
+    }
+    emptyEl.style.display = 'none';
+
+    const frag = document.createDocumentFragment();
+    for (const h of visible) {
+      const tr = document.createElement('tr');
+      tr.dataset.freqHz = h.freqHz;
+      const mhz      = (h.freqHz / 1e6).toFixed(3);
+      // flag comes from firmware: only STRONG | MED | SKIP — sanitise to safe subset
+      const safeFlag = /^(STRONG|MED|SKIP)$/.test(h.flag) ? h.flag : 'SKIP';
+      tr.innerHTML =
+        `<td class="freq-cell">${mhz}</td>` +
+        `<td>${h.rssiAvg} dBm</td>` +
+        `<td>${h.rssiMin} dBm</td>` +
+        `<td>${h.samples}</td>` +
+        `<td class="flag-${safeFlag}">${safeFlag}</td>` +
+        `<td><button class="roll-tune-btn" data-hz="${h.freqHz}">&#9654; Tune</button></td>`;
+      frag.appendChild(tr);
+    }
+    tbody.innerHTML = '';
+    tbody.appendChild(frag);
+  }
+
+  /* Tune button: switch to Triangulator tab, set target frequency */
+  tbody.addEventListener('click', e => {
+    const btn = e.target.closest('.roll-tune-btn');
+    if (!btn) return;
+    const hz = parseInt(btn.dataset.hz, 10);
+    if (!isFinite(hz)) return;
+    // Switch to map tab by simulating a click on that tab button
+    const mapTabBtn = document.querySelector('#tabs .tab[data-tab="map"]');
+    if (mapTabBtn) mapTabBtn.click();
+    else if (typeof map !== 'undefined' && map.invalidateSize) {
+      setTimeout(() => map.invalidateSize(), 50);
+    }
+    // Set state to show this frequency as target
+    state.freqHz = hz;
+    renderReadout();
+    toast(`Target: ${(hz/1e6).toFixed(3)} MHz — tune Flipper then capture`);
+  });
+
+  /* Filter buttons */
+  filterBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      rollFilter = btn.dataset.filter;
+      filterBtns.forEach(b => b.classList.toggle('active', b === btn));
+      renderRollTable();
+    });
+  });
+
+  document.getElementById('rollClear').addEventListener('click', () => {
+    rollHits.length = 0;
+    rollRunning = false;
+    status.textContent = 'Waiting for Flipper roll scan…';
+    status.className   = 'roll-status idle';
+    progressBar.style.width = '0%';
+    freqCurEl.textContent = '—';
+    tbody.innerHTML = '';
+    emptyEl.style.display = 'block';
+    emptyEl.textContent = 'Start a Roll Scan on the Flipper (DB list → ▶ ROLL SCAN) to populate this list.';
+    countEl.textContent = '0 hits';
+  });
+
 })();

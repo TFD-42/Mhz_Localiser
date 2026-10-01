@@ -167,3 +167,70 @@ main { top: 102px; }
   border: 1px solid #30363d; border-radius: 6px; text-align: left;
 }
 .alloc-empty .nearby b { color: #e6edf3; }
+
+/* ------------------------------------------------------------------ */
+/* Roll Scan panel                                                     */
+/* ------------------------------------------------------------------ */
+#rollPanel { overflow: hidden; display: none; flex-direction: column; }
+#rollPanel.active { display: flex; }
+
+.roll-header {
+  padding: 10px 12px; background: #161b22; border-bottom: 1px solid #30363d;
+  display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
+}
+.roll-status {
+  font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 4px;
+  align-self: flex-start;
+}
+.roll-status.idle    { color: #7d8590; background: #21262d; }
+.roll-status.running { color: #d29922; background: #2d2208; }
+.roll-status.done    { color: #3fb950; background: #0d2f18; }
+
+.roll-progress-wrap {
+  height: 4px; background: #21262d; border-radius: 2px; overflow: hidden;
+}
+.roll-progress-bar {
+  height: 100%; width: 0; background: linear-gradient(90deg, #1f6feb, #3fb950);
+  transition: width 400ms;
+}
+
+.roll-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px;
+}
+#rollCount { color: #7d8590; min-width: 48px; }
+#rollFreqCur { color: #e6edf3; font-variant-numeric: tabular-nums; font-weight: 600; flex: 1; }
+.roll-filters { display: flex; gap: 4px; flex-wrap: wrap; }
+.roll-filter {
+  padding: 4px 10px; font-size: 11px; border-radius: 4px;
+  border: 1px solid #30363d; background: #21262d; color: #7d8590; cursor: pointer;
+}
+.roll-filter.active { background: #1f6feb22; border-color: #1f6feb; color: #e6edf3; }
+#rollClear {
+  padding: 4px 10px; font-size: 11px; border-radius: 4px;
+  border: 1px solid #30363d; background: #21262d; color: #e6edf3; cursor: pointer;
+}
+
+#rollTableWrap { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; }
+#rollTable {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+  color: #c9d1d9; table-layout: auto;
+}
+#rollTable thead { position: sticky; top: 0; background: #161b22; z-index: 1; }
+#rollTable th {
+  text-align: left; padding: 8px 8px; border-bottom: 1px solid #30363d;
+  color: #7d8590; font-weight: 600; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap;
+}
+#rollTable td {
+  padding: 7px 8px; border-bottom: 1px solid #21262d; vertical-align: middle;
+}
+#rollTable tbody tr:hover { background: #161b22; cursor: pointer; }
+#rollTable .freq-cell { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; }
+.flag-STRONG { color: #f85149; font-weight: 700; }
+.flag-MED    { color: #d29922; font-weight: 600; }
+.flag-SKIP   { color: #484f58; }
+.roll-tune-btn {
+  padding: 4px 10px; font-size: 11px; border-radius: 4px;
+  border: 1px solid #1f6feb; background: #1f6feb22; color: #79c0ff;
+  cursor: pointer; white-space: nowrap;
+}

@@ -22,6 +22,7 @@
 <nav id="tabs">
   <button class="tab active" data-tab="map">Triangulator</button>
   <button class="tab" data-tab="alloc">Allocation List</button>
+  <button class="tab" data-tab="roll">Roll Scan</button>
 </nav>
 
 <main>
@@ -82,6 +83,42 @@
         <tbody id="allocTbody"></tbody>
       </table>
       <div id="allocEmpty" class="alloc-empty hidden"></div>
+    </div>
+  </section>
+
+  <!-- Roll Scan tab -->
+  <section id="rollPanel" class="tab-panel">
+    <div class="roll-header">
+      <div id="rollStatus" class="roll-status idle">Waiting for Flipper roll scan…</div>
+      <div class="roll-progress-wrap">
+        <div id="rollProgressBar" class="roll-progress-bar"></div>
+      </div>
+      <div class="roll-meta">
+        <span id="rollCount">0 hits</span>
+        <span id="rollFreqCur">—</span>
+        <div class="roll-filters">
+          <button class="roll-filter active" data-filter="med">MED+</button>
+          <button class="roll-filter" data-filter="all">All</button>
+          <button class="roll-filter" data-filter="strong">STRONG only</button>
+          <button id="rollClear" class="secondary">Clear</button>
+        </div>
+      </div>
+    </div>
+    <div id="rollTableWrap">
+      <table id="rollTable">
+        <thead>
+          <tr>
+            <th>Freq (MHz)</th>
+            <th>Avg RSSI</th>
+            <th>Min RSSI</th>
+            <th>Samples</th>
+            <th>Signal</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="rollTbody"></tbody>
+      </table>
+      <div id="rollEmpty" class="alloc-empty">Start a Roll Scan on the Flipper (DB list → ▶ ROLL SCAN) to populate this list.</div>
     </div>
   </section>
 </main>

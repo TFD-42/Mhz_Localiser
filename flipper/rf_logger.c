@@ -31,7 +31,67 @@
 #define VCP_DATA_CH       1u
 #define LOG_DIR           EXT_PATH("apps_data/rf_logger")
 
-typedef enum { StateManualEntry, StateRunning } AppState;
+typedef enum { StateManualEntry, StateDbList, StateRolling, StateRunning } AppState;
+
+/* ---- Frequency DB (embedded, Sub-GHz focus) ---- */
+typedef struct {
+    uint32_t    hz;
+    const char* label;  // up to 21 chars visible on Flipper screen
+    const char* region; // e.g. "EU/CH", "US", "ALL"
+} FreqEntry;
+
+/* hz=0 is the sentinel for the "Start Roll Scan" action */
+static const FreqEntry FREQ_DB[] = {
+    { 0u,          "\x10 START ROLL SCAN",  "300-928"}, // \x10 = right-arrow glyph
+    /* ISM / SRD — ALL regions */
+    { 315000000u, "315 ISM (US/JP)",     "US"    },
+    { 433920000u, "433.92 ISM/SRD",      "EU/CH" },
+    { 434000000u, "434.00 SRD",          "EU"    },
+    { 868000000u, "868.00 LoRa/SRD",     "EU/CH" },
+    { 868300000u, "868.30 LoRa CH1",     "EU/CH" },
+    { 868500000u, "868.50 LoRa CH2",     "EU/CH" },
+    { 869525000u, "869.52 LoRa RX2",     "EU/CH" },
+    { 915000000u, "915.00 LoRa (US)",    "US"    },
+    { 916800000u, "916.80 LoRa (US)",    "US"    },
+    { 917000000u, "917.00 SRD (US)",     "US"    },
+    { 928000000u, "928.00 SRD (US)",     "US"    },
+    /* TPMS / automotive RKE */
+    { 433920000u, "433.92 TPMS/RKE",     "EU/CH" },
+    { 315000000u, "315.00 TPMS/RKE",     "US/JP" },
+    /* Alarms / security */
+    { 433920000u, "433.92 Alarm",        "EU/CH" },
+    { 868350000u, "868.35 Alarm",        "EU/CH" },
+    { 869400000u, "869.40 Alarm HP",     "EU/CH" },
+    /* Weather / radiosondes */
+    { 403000000u, "403.00 Radiosonde",   "ALL"   },
+    { 405000000u, "405.00 Radiosonde",   "ALL"   },
+    /* PMR / walkie-talkie */
+    { 446006250u, "446.006 PMR446 ch1",  "EU/CH" },
+    { 446093750u, "446.093 PMR446 ch8",  "EU/CH" },
+    /* POCSAG / pager */
+    { 466025000u, "466.02 POCSAG",       "EU"    },
+    /* OpenGarage / Metering */
+    { 433920000u, "433.92 SmartMeter",   "EU/CH" },
+    /* Aircraft / ADS-B adjacent */
+    { 868000000u, "868.00 FLARM",        "EU/CH" },
+    /* Polycom / TETRA (CH emergency) */
+    { 380500000u, "380.5 Polycom UL",    "CH"    },
+    { 390500000u, "390.5 Polycom DL",    "CH"    },
+    /* GSM-R (SBB) */
+    { 877500000u, "877.5 GSM-R UL SBB", "CH"    },
+    { 922500000u, "922.5 GSM-R DL SBB", "CH"    },
+    /* Swiss ISM / BAKOM */
+    { 433050000u, "433.05 SRD low CH",   "CH"    },
+    { 434790000u, "434.79 SRD high CH",  "CH"    },
+    { 863000000u, "863.00 SRD low EU",   "EU/CH" },
+    { 870000000u, "870.00 SRD high EU",  "EU/CH" },
+    /* Sub-1GHz IoT */
+    { 169400000u, "169.40 Sigfox EU",    "EU/CH" },
+    { 868800000u, "868.80 Sigfox EU",    "EU/CH" },
+    /* NFC / HF (near Sub-GHz for reference) */
+    { 300000000u, "300.00 ---- min ----","ALL"   },
+};
+#define FREQ_DB_LEN ((int)(sizeof(FREQ_DB) / sizeof(FREQ_DB[0])))
 
 // Manual entry: edit a XXX.XX MHz value digit by digit.
 // 5 editable positions: [0]=100s [1]=10s [2]=1s . [3]=0.1 [4]=0.01
@@ -48,6 +108,17 @@ static const uint32_t MANUAL_DIGIT_HZ[MANUAL_DIGITS] = {
 
 typedef struct {
     AppState state;
+    int      db_cursor;   // index in FREQ_DB[]
+
+    /* Rolling scan state */
+    uint32_t roll_hz;          // current frequency being evaluated
+    uint32_t roll_end_tick;    // tick when to move on from this frequency
+    int32_t  roll_rssi_sum;    // sum of RSSI samples
+    int      roll_rssi_min;    // strongest (most negative) sample
+    uint16_t roll_n;           // samples accumulated
+    bool     roll_dwell;       // true during extended dwell (MED/STRONG)
+    char     roll_last_flag[8];// last flag sent, for display
+
     uint32_t freq_req_hz;
     uint32_t freq_act_hz;
     uint32_t manual_hz;      // current editable frequency in Hz
@@ -72,6 +143,10 @@ typedef struct {
     uint32_t next_adv_kick;
     uint32_t next_profile_retry;
 } RfLoggerApp;
+
+/* Forward declarations (defined later in file) */
+static void draw_signal_bar(Canvas* canvas, int x, int y, int w, int h, int rssi_dbm);
+static void manual_clamp(RfLoggerApp* app);
 
 /* ---- BLE serial streaming ---- */
 
@@ -234,6 +309,209 @@ static void sample_once(RfLoggerApp* app) {
 }
 
 
+/* ---- Rolling scan helpers ---- */
+#define ROLL_STEP_HZ     1000000u   // 1 MHz per step
+#define ROLL_DWELL_MS    2000u      // base dwell: 2 s
+#define ROLL_EXTRA_MS    1000u      // extra dwell if MED or STRONG
+#define ROLL_THRESH_MED  (-100)     // RSSI > -100 dBm → at least MED
+#define ROLL_THRESH_STRONG (-80)    // RSSI > -80 dBm → STRONG
+
+static void roll_sample_acc(RfLoggerApp* app) {
+    float f = furi_hal_subghz_get_rssi();
+    int   r = (int)f;
+    app->roll_rssi_sum += (int32_t)r;
+    if(app->roll_n == 0 || r > app->roll_rssi_min) app->roll_rssi_min = r;
+    app->roll_n++;
+}
+
+static void roll_emit(RfLoggerApp* app, int avg, const char* flag) {
+    char line[128];
+    int len = snprintf(line, sizeof(line),
+        "ROLL,%lu,%lu,%d,%d,%u,%s\r\n",
+        (unsigned long)furi_get_tick(),
+        (unsigned long)app->roll_hz,
+        avg, app->roll_rssi_min,
+        (unsigned)app->roll_n, flag);
+    if(len > 0) {
+        furi_hal_cdc_send(VCP_DATA_CH, (uint8_t*)line, (uint16_t)len);
+        if(app->ble_profile)
+            ble_profile_serial_tx(app->ble_profile, (uint8_t*)line, (uint16_t)len);
+        if(app->sd_logging) log_write_line(app, line);
+    }
+    strncpy(app->roll_last_flag, flag, sizeof(app->roll_last_flag)-1);
+}
+
+/* Called from the main loop every SAMPLE_PERIOD_MS while StateRolling.
+ * Returns true when rolling scan completes (caller should switch state). */
+static bool roll_tick(RfLoggerApp* app) {
+    uint32_t now = furi_get_tick();
+    roll_sample_acc(app);
+    if(now < app->roll_end_tick) return false; // still dwelling
+
+    if(app->roll_n > 0) {
+        int avg = (int)(app->roll_rssi_sum / (int32_t)app->roll_n);
+        if(avg >= ROLL_THRESH_MED) { // signal present
+            const char* flag = (avg >= ROLL_THRESH_STRONG) ? "STRONG" : "MED";
+            if(!app->roll_dwell) {
+                // first pass: emit result, extend dwell for detail samples
+                roll_emit(app, avg, flag);
+                app->roll_dwell    = true;
+                app->roll_end_tick = now + ROLL_EXTRA_MS;
+                return false;
+            }
+            // second pass: emit updated average with more samples
+            int avg2 = (int)(app->roll_rssi_sum / (int32_t)app->roll_n);
+            const char* flag2 = (avg2 >= ROLL_THRESH_STRONG) ? "STRONG" : "MED";
+            roll_emit(app, avg2, flag2);
+        }
+        // SKIP: don't emit (keep stream quiet for noise floor)
+    }
+
+    // Advance to next frequency
+    uint32_t next = app->roll_hz + ROLL_STEP_HZ;
+    if(next > MANUAL_MAX_HZ) return true; // done
+
+    app->roll_hz       = next;
+    app->roll_rssi_sum = 0;
+    app->roll_rssi_min = 0;
+    app->roll_n        = 0;
+    app->roll_dwell    = false;
+    subghz_retune(app, app->roll_hz);
+    app->roll_end_tick = furi_get_tick() + ROLL_DWELL_MS;
+    return false;
+}
+
+static void draw_rolling_scan(Canvas* canvas, RfLoggerApp* app) {
+    canvas_clear(canvas);
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str(canvas, 2, 10, "Roll Scan");
+
+    // Frequency + flag
+    canvas_set_font(canvas, FontBigNumbers);
+    char freq[24];
+    snprintf(freq, sizeof(freq), "%lu.%02lu",
+             (unsigned long)(app->roll_hz / 1000000u),
+             (unsigned long)((app->roll_hz / 10000u) % 100u));
+    canvas_draw_str(canvas, 2, 34, freq);
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str(canvas, 82, 34, "MHz");
+
+    // Last flag
+    const char* flag = app->roll_last_flag[0] ? app->roll_last_flag : "---";
+    canvas_draw_str(canvas, 95, 26, flag);
+
+    // RSSI if we have samples
+    if(app->roll_n > 0) {
+        int avg = (int)(app->roll_rssi_sum / (int32_t)app->roll_n);
+        char rssi[16];
+        snprintf(rssi, sizeof(rssi), "%d dBm", avg);
+        canvas_draw_str(canvas, 2, 46, rssi);
+        draw_signal_bar(canvas, 2, 50, 120, 6, avg);
+    }
+
+    // Progress bar: 300-928 MHz
+    uint32_t span = MANUAL_MAX_HZ - MANUAL_MIN_HZ;
+    uint32_t done = (app->roll_hz > MANUAL_MIN_HZ) ? (app->roll_hz - MANUAL_MIN_HZ) : 0;
+    int prog = (int)(done * 120u / span);
+    canvas_draw_frame(canvas, 2, 58, 120, 5);
+    if(prog > 0) canvas_draw_box(canvas, 2, 58, prog, 5);
+
+    canvas_draw_str(canvas, 2, 63, "Back=stop");
+}
+
+/* ---- DB list screen ---- */
+#define DB_VISIBLE 4  // rows visible at once on the 64px screen
+
+static void draw_db(Canvas* canvas, RfLoggerApp* app) {
+    canvas_clear(canvas);
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str(canvas, 2, 10, "Freq DB");
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str(canvas, 60, 10, "OK=select Bk=exit");
+
+    // Scrolling window: keep cursor in the middle
+    int top = app->db_cursor - DB_VISIBLE / 2;
+    if(top < 0) top = 0;
+    if(top > FREQ_DB_LEN - DB_VISIBLE) top = FREQ_DB_LEN - DB_VISIBLE;
+    if(top < 0) top = 0;
+
+    for(int i = 0; i < DB_VISIBLE && (top + i) < FREQ_DB_LEN; i++) {
+        int idx = top + i;
+        int y   = 22 + i * 11;
+        bool sel = (idx == app->db_cursor);
+
+        if(sel) {
+            canvas_draw_box(canvas, 0, y - 9, 128, 11);
+            canvas_invert_color(canvas);
+        }
+
+        char buf[28];
+        snprintf(buf, sizeof(buf), "%-22s %s",
+                 FREQ_DB[idx].label, FREQ_DB[idx].region);
+        canvas_draw_str(canvas, 2, y, buf);
+
+        if(sel) canvas_invert_color(canvas);
+    }
+
+    // Scrollbar
+    if(FREQ_DB_LEN > DB_VISIBLE) {
+        int bar_h = 44 * DB_VISIBLE / FREQ_DB_LEN;
+        if(bar_h < 4) bar_h = 4;
+        int bar_y = 13 + (44 - bar_h) * top / (FREQ_DB_LEN - DB_VISIBLE);
+        canvas_draw_line(canvas, 127, 13, 127, 57);
+        canvas_draw_box(canvas, 126, bar_y, 2, bar_h);
+    }
+}
+
+static void handle_db_input(RfLoggerApp* app, InputEvent* ev) {
+    bool is_short  = (ev->type == InputTypeShort);
+    bool is_repeat = (ev->type == InputTypeRepeat);
+    if(!is_short && !is_repeat) return;
+    switch(ev->key) {
+    case InputKeyUp:
+        if(app->db_cursor > 0) app->db_cursor--;
+        break;
+    case InputKeyDown:
+        if(app->db_cursor < FREQ_DB_LEN - 1) app->db_cursor++;
+        break;
+    case InputKeyOk:
+        if(is_short) {
+            uint32_t hz = FREQ_DB[app->db_cursor].hz;
+            if(hz == 0u) {
+                // Start rolling scan
+                usb_take(app);
+                app->roll_hz       = MANUAL_MIN_HZ;
+                app->roll_rssi_sum = 0;
+                app->roll_rssi_min = 0;
+                app->roll_n        = 0;
+                app->roll_dwell    = false;
+                app->roll_last_flag[0] = '\0';
+                subghz_start(app, app->roll_hz);
+                // Header over USB + BLE
+                const char* hdr = "# RF_LOGGER_ROLL start=300000000 step=1000000 max=928000000\r\n"
+                                  "ROLL,ts_ms,freq_hz,rssi_avg,rssi_min,samples,flag\r\n";
+                furi_hal_cdc_send(VCP_DATA_CH, (uint8_t*)hdr, (uint16_t)strlen(hdr));
+                if(app->ble_profile)
+                    ble_profile_serial_tx(app->ble_profile, (uint8_t*)hdr, (uint16_t)strlen(hdr));
+                app->roll_end_tick = furi_get_tick() + ROLL_DWELL_MS;
+                app->state = StateRolling;
+                notification_message(app->notifications, &sequence_blink_start_cyan);
+            } else if(hz >= MANUAL_MIN_HZ && hz <= MANUAL_MAX_HZ) {
+                app->manual_hz = hz;
+                manual_clamp(app);
+                app->state = StateManualEntry;
+            } else {
+                app->state = StateManualEntry;
+            }
+        }
+        break;
+    case InputKeyBack:
+        if(is_short) app->state = StateManualEntry;
+        break;
+    default: break;
+    }
+}
+
 static void draw_manual(Canvas* canvas, RfLoggerApp* app) {
     canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
@@ -273,7 +551,7 @@ static void draw_manual(Canvas* canvas, RfLoggerApp* app) {
     canvas_draw_line(canvas, ux, y_text + 2, ux + digit_w - 2, y_text + 2);
 
     // Hint footer
-    canvas_draw_str(canvas, 4, 56, "Up/Dn change   L/R move");
+    canvas_draw_str(canvas, 4, 56, "U/D chg  L/R mov  R>DB");
     canvas_draw_str(canvas, 4, 64, "OK start   Back cancel");
 }
 
@@ -332,8 +610,10 @@ static void draw_running(Canvas* canvas, RfLoggerApp* app) {
 static void render_cb(Canvas* canvas, void* ctx) {
     RfLoggerApp* app = ctx;
     furi_mutex_acquire(app->mutex, FuriWaitForever);
-    if(app->state == StateManualEntry) draw_manual(canvas, app);
-    else draw_running(canvas, app);
+    if(app->state == StateManualEntry)  draw_manual(canvas, app);
+    else if(app->state == StateDbList)  draw_db(canvas, app);
+    else if(app->state == StateRolling) draw_rolling_scan(canvas, app);
+    else                                draw_running(canvas, app);
     furi_mutex_release(app->mutex);
 }
 
@@ -364,7 +644,14 @@ static void handle_manual_input(RfLoggerApp* app, InputEvent* ev) {
         if(is_short && app->manual_cursor > 0) app->manual_cursor--;
         break;
     case InputKeyRight:
-        if(is_short && app->manual_cursor + 1 < MANUAL_DIGITS) app->manual_cursor++;
+        if(is_short) {
+            if(app->manual_cursor + 1 < MANUAL_DIGITS) {
+                app->manual_cursor++;
+            } else {
+                // at the last digit: open DB list
+                app->state = StateDbList;
+            }
+        }
         break;
     case InputKeyOk:
         if(is_short) {
@@ -424,6 +711,20 @@ int32_t rf_logger_app(void* p) {
             if(app->state == StateManualEntry) {
                 if(ev.key == InputKeyBack && ev.type == InputTypeShort) exit = true;
                 else handle_manual_input(app, &ev);
+            } else if(app->state == StateDbList) {
+                handle_db_input(app, &ev);
+            } else if(app->state == StateRolling) {
+                // Back stops the rolling scan
+                if(ev.key == InputKeyBack && ev.type == InputTypeShort) {
+                    subghz_stop();
+                    notification_message(app->notifications, &sequence_blink_stop);
+                    app->state = StateManualEntry;
+                }
+                // OK toggles SD logging during rolling
+                if(ev.key == InputKeyOk && ev.type == InputTypeShort) {
+                    app->sd_logging = !app->sd_logging;
+                    if(app->sd_logging) log_open(app); else log_close(app);
+                }
             } else {
                 handle_running_input(app, &ev);
             }
@@ -436,6 +737,22 @@ int32_t rf_logger_app(void* p) {
                 sample_once(app);
                 furi_mutex_release(app->mutex);
                 next_sample = now + SAMPLE_PERIOD_MS;
+            }
+        } else if(app->state == StateRolling) {
+            uint32_t now = furi_get_tick();
+            if(now >= next_sample) {
+                furi_mutex_acquire(app->mutex, FuriWaitForever);
+                bool done = roll_tick(app);
+                furi_mutex_release(app->mutex);
+                next_sample = now + SAMPLE_PERIOD_MS;
+                if(done) {
+                    furi_mutex_acquire(app->mutex, FuriWaitForever);
+                    subghz_stop();
+                    log_close(app);
+                    notification_message(app->notifications, &sequence_blink_stop);
+                    app->state = StateManualEntry;
+                    furi_mutex_release(app->mutex);
+                }
             }
         }
         ble_keepalive(app);
