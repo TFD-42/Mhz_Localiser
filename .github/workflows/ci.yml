@@ -52,6 +52,8 @@ jobs:
         run: |
           npm install --no-save --no-package-lock jsdom@24
           node android/tests/roll_ui.test.js android/www
+      - name: Offline boot (no CDN, bundled Leaflet + spectrum.csv)
+        run: node android/tests/offline_boot.test.js android/www
 
   # Hardware-free rolling-scan logic (band plan, CC1101 crash guard, clustering,
   # fine-pass centroid, preset patching) — host build with ASan/UBSan.

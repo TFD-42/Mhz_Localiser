@@ -5,6 +5,25 @@ All notable changes to Mhz_Localiser are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow semantic-ish versioning tied to the FAP/APK version.
 
+## [Unreleased]
+
+### Fixed
+- **Android app now starts with no network.** Leaflet 1.9.4 was loaded from the unpkg CDN;
+  offline (or on a CDN outage) `L` was undefined, `app.js` threw at map init and nothing
+  after it ran — USB/BLE bridge, Allocation List and Roll Scan included. Leaflet is now
+  bundled in `android/www/vendor/leaflet-1.9.4/` (BSD-2-Clause, license file included).
+  The shipped `artifacts/RF_Triangulator.apk` predates this fix and must be rebuilt.
+
+### Added
+- `android/tests/offline_boot.test.js` (CI): fails if `index.html` references remote
+  scripts/styles, boots the real vendored Leaflet + `app.js` with the network cut and
+  checks the Allocation List renders from the bundled `spectrum.csv`.
+
+### Docs
+- README: keyword-first title and hook, v3.0 flow (31 DB frequencies, CC1101 band gaps),
+  re-verified hardware prices with sources (Flipper Zero $169, not ~$60), descriptive image
+  alt text, corrected network/offline statement, Contributing and Third-party sections.
+
 ## [3.0] - 2026-10-04
 
 ### Changed
