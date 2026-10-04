@@ -126,25 +126,53 @@ for (const [name, bridge] of Object.entries(Bridges)) {
 
 const SMOOTH_ALPHA = 0.3; // EMA at 5 Hz → ~0.6 s time constant
 
+/* "key=value key2=value2" → {key: 'value', …}; tokens without '=' are ignored. */
+function parseKv(s) {
+  const out = {};
+  for (const tok of String(s).split(/\s+/)) {
+    const i = tok.indexOf('=');
+    if (i > 0) out[tok.slice(0, i)] = tok.slice(i + 1);
+  }
+  return out;
+}
+
 function handleSerialLine(line) {
   if (!line) return;
   // Rolling scan header — update roll panel status
   if (line.startsWith('# RF_LOGGER_ROLL')) {
-    rollScanStart();
+    rollScanStart(parseKv(line));
     return;
   }
-  // Rolling data line: ROLL,ts_ms,freq_hz,rssi_avg,rssi_min,samples,flag
+  // v3 scan events: pos / floor / end / err / warn
+  if (line.startsWith('# RF_LOGGER_RSCAN ')) {
+    const rest = line.slice('# RF_LOGGER_RSCAN '.length);
+    const kind = rest.split(' ', 1)[0];
+    rollScanEvent(kind, parseKv(rest));
+    return;
+  }
+  // Rolling data line:
+  //   v1/v2: ROLL,ts_ms,freq_hz,rssi_avg,rssi_min,samples,flag
+  //   v3   : …,flag,pass,floor_dbm,width_hz,cluster,seq   (rssi_min → rssi_peak)
   if (line.startsWith('ROLL,')) {
-    const p = line.split(',');
+    const p = line.split(',').map(s => s.trim());
     if (p.length >= 7 && p[1] !== 'ts_ms') {
-      rollHandleLine({
+      const entry = {
         ts:      parseInt(p[1], 10),
         freqHz:  parseInt(p[2], 10),
         rssiAvg: parseInt(p[3], 10),
-        rssiMin: parseInt(p[4], 10),
+        rssiPeak: parseInt(p[4], 10),
         samples: parseInt(p[5], 10),
-        flag:    p[6].trim(),
-      });
+        flag:    p[6],
+        pass:    null, floorDbm: null, widthHz: null, cluster: null, seq: null,
+      };
+      if (p.length >= 12) {
+        entry.pass     = p[7] === 'F' ? 'F' : 'C';
+        entry.floorDbm = parseInt(p[8], 10);
+        entry.widthHz  = parseInt(p[9], 10);
+        entry.cluster  = parseInt(p[10], 10);
+        entry.seq      = parseInt(p[11], 10);
+      }
+      if (isFinite(entry.freqHz) && isFinite(entry.rssiAvg)) rollHandleLine(entry);
     }
     return;
   }
@@ -687,6 +715,16 @@ solve();
 if (state.captures.length) {
   map.fitBounds(L.latLngBounds(state.captures.map(c => [c.lat, c.lon])).pad(0.3));
 }
+
+/* Bridge for the independent tab modules below (they live outside this
+ * closure, so `state`/`renderReadout`/`toast` are not in their scope). */
+window.rfSetTargetFreq = function (hz) {
+  if (!isFinite(hz) || hz <= 0) return;
+  state.freqHz = hz;
+  state.rssiSmooth = null; // a new target makes the old average meaningless
+  renderReadout();
+  toast(`Target: ${(hz / 1e6).toFixed(3)} MHz — tune Flipper then capture`);
+};
 })();
 
 /* ===================================================================== */
@@ -991,12 +1029,18 @@ if (state.captures.length) {
 (function () {
   const ROLL_MIN_HZ = 300e6;
   const ROLL_MAX_HZ = 928e6;
+  const FLAG_RE = /^(STRONG|MED|SKIP)$/;
 
   /* State */
-  const rollHits = [];   // {freqHz, rssiAvg, rssiMin, samples, flag, ts}
+  // v3: keyed by cluster id (the fine 'F' line replaces its coarse 'C' line).
+  // v1/v2: keyed by frequency (legacy firmware, no cluster column).
+  const rollHits = new Map();
   let rollRunning  = false;
-  let rollLastFreq = 0;
-  let rollFilter   = 'med'; // 'all' | 'med' | 'strong'
+  let rollV3       = false;  // header said v=3 → completion comes from the end event
+  let rollFilter   = 'med';  // 'all' | 'med' | 'strong'
+  let rollLastSeq  = null;
+  let rollLost     = 0;      // gaps in the v3 seq column (lost lines)
+  let rollFloorTxt = '';
 
   /* DOM */
   const status      = document.getElementById('rollStatus');
@@ -1007,51 +1051,102 @@ if (state.captures.length) {
   const emptyEl     = document.getElementById('rollEmpty');
   const filterBtns  = Array.from(document.querySelectorAll('.roll-filter[data-filter]'));
 
-  /* Tab init (wired up by the existing tab-switch code in the main IIFE) */
+  function setStatus(text, cls) {
+    status.textContent = text;
+    status.className   = 'roll-status ' + cls;
+  }
+
+  function setProgress(pct) {
+    const v = Math.max(0, Math.min(100, Math.round(pct)));
+    progressBar.style.width = v + '%';
+  }
+
+  function showFreq(hz) {
+    if (isFinite(hz) && hz > 0) freqCurEl.textContent = (hz / 1e6).toFixed(3) + ' MHz';
+  }
+
+  function resetScan() {
+    rollHits.clear();
+    rollLastSeq = null;
+    rollLost = 0;
+    rollFloorTxt = '';
+  }
+
   /* We expose handlers on window so the main IIFE can find them */
-  window.rollScanStart = function () {
+  window.rollScanStart = function (kv) {
+    resetScan();
+    rollV3 = !!(kv && kv.v && parseInt(kv.v, 10) >= 3);
     rollRunning = true;
-    status.textContent = 'Rolling scan in progress…';
-    status.className   = 'roll-status running';
-    progressBar.style.width = '0%';
-    rollLastFreq = ROLL_MIN_HZ;
-    updateProgress(ROLL_MIN_HZ);
+    setStatus(rollV3 ? 'Pass 1/2 — coarse sweep…' : 'Rolling scan in progress…', 'running');
+    setProgress(0);
+    showFreq(ROLL_MIN_HZ);
+    renderRollTable();
+  };
+
+  window.rollScanEvent = function (kind, kv) {
+    if (kind === 'pos') {
+      const idx = parseInt(kv.idx, 10), total = parseInt(kv.total, 10);
+      if (!(total > 0) || !isFinite(idx)) return;
+      rollRunning = true;
+      // coarse = 0–80 %, fine = 80–100 % (coarse dominates the wall time)
+      if (kv.pass === 'F') {
+        setProgress(80 + 20 * idx / total);
+        setStatus(`Pass 2/2 — fine scan ${idx + 1}/${total}`, 'running');
+      } else {
+        setProgress(80 * idx / total);
+      }
+      showFreq(parseInt(kv.hz, 10));
+    } else if (kind === 'floor') {
+      rollFloorTxt = `floor ${kv.b0}/${kv.b1}/${kv.b2} dBm`;
+    } else if (kind === 'end') {
+      rollRunning = false;
+      setProgress(100);
+      const lost = rollLost ? ` · ${rollLost} line(s) lost` : '';
+      const errs = parseInt(kv.tune_err, 10) > 0 ? ` · ${kv.tune_err} tune error(s)` : '';
+      const secs = isFinite(parseInt(kv.total_ms, 10)) ? ` in ${(kv.total_ms / 1000).toFixed(0)} s` : '';
+      if (kv.status === 'aborted') {
+        setStatus(`Scan stopped — ${rollHits.size} hit(s)${lost}`, 'idle');
+      } else {
+        setStatus(`Scan complete — ${countVisible()} hit(s)${secs}${errs}${lost}` +
+                  (rollFloorTxt ? ` · ${rollFloorTxt}` : ''), 'done');
+      }
+      renderRollTable();
+    } else if (kind === 'err' || kind === 'warn') {
+      console.warn('[roll]', kind, kv);
+    }
   };
 
   window.rollHandleLine = function (entry) {
     if (!rollRunning) {
       rollRunning = true;
-      status.textContent = 'Rolling scan in progress…';
-      status.className   = 'roll-status running';
+      setStatus('Rolling scan in progress…', 'running');
     }
 
-    rollLastFreq = entry.freqHz;
-    updateProgress(entry.freqHz);
+    if (entry.seq !== null && isFinite(entry.seq)) {
+      if (rollLastSeq !== null && entry.seq > rollLastSeq + 1) rollLost += entry.seq - rollLastSeq - 1;
+      rollLastSeq = entry.seq;
+    }
 
-    // Deduplicate: same freq → keep the stronger average
-    const existing = rollHits.findIndex(h => h.freqHz === entry.freqHz);
-    if (existing >= 0) {
-      if (entry.rssiAvg > rollHits[existing].rssiAvg) rollHits[existing] = entry;
+    if (entry.cluster !== null && isFinite(entry.cluster)) {
+      const key = 'c' + entry.cluster;
+      const prev = rollHits.get(key);
+      // a fine result always supersedes the coarse estimate of the same cluster
+      if (!prev || entry.pass === 'F' || prev.pass !== 'F') rollHits.set(key, entry);
     } else {
-      rollHits.push(entry);
+      const key = 'f' + entry.freqHz;
+      const prev = rollHits.get(key);
+      if (!prev || entry.rssiAvg > prev.rssiAvg) rollHits.set(key, entry);
+      showFreq(entry.freqHz);
+      setProgress((entry.freqHz - ROLL_MIN_HZ) / (ROLL_MAX_HZ - ROLL_MIN_HZ) * 100);
+      // legacy firmware has no end marker: infer completion from the last band edge
+      if (!rollV3 && entry.freqHz >= ROLL_MAX_HZ - 1e6) {
+        rollRunning = false;
+        setStatus(`Scan complete — ${countVisible()} hits found`, 'done');
+        setProgress(100);
+      }
     }
-
-    // Check if scan completed (reached max)
-    if (entry.freqHz >= ROLL_MAX_HZ - 1e6) {
-      rollRunning = false;
-      status.textContent = `Scan complete — ${countVisible()} hits found`;
-      status.className   = 'roll-status done';
-      progressBar.style.width = '100%';
-    }
-
     renderRollTable();
   };
-
-  function updateProgress(hz) {
-    const pct = Math.round((hz - ROLL_MIN_HZ) / (ROLL_MAX_HZ - ROLL_MIN_HZ) * 100);
-    progressBar.style.width = pct + '%';
-    freqCurEl.textContent = (hz / 1e6).toFixed(3) + ' MHz';
-  }
 
   function passesFilter(entry) {
     if (rollFilter === 'strong') return entry.flag === 'STRONG';
@@ -1060,12 +1155,21 @@ if (state.captures.length) {
   }
 
   function countVisible() {
-    return rollHits.filter(passesFilter).length;
+    let n = 0;
+    for (const h of rollHits.values()) if (passesFilter(h)) n++;
+    return n;
+  }
+
+  function cell(text, cls) {
+    const td = document.createElement('td');
+    if (cls) td.className = cls;
+    td.textContent = text;
+    return td;
   }
 
   function renderRollTable() {
-    const visible = rollHits.filter(passesFilter)
-      .sort((a, b) => b.rssiAvg - a.rssiAvg); // strongest first
+    const visible = Array.from(rollHits.values()).filter(passesFilter)
+      .sort((a, b) => b.rssiPeak - a.rssiPeak); // strongest first
 
     countEl.textContent = visible.length + ' hit' + (visible.length === 1 ? '' : 's');
 
@@ -1083,16 +1187,22 @@ if (state.captures.length) {
     for (const h of visible) {
       const tr = document.createElement('tr');
       tr.dataset.freqHz = h.freqHz;
-      const mhz      = (h.freqHz / 1e6).toFixed(3);
       // flag comes from firmware: only STRONG | MED | SKIP — sanitise to safe subset
-      const safeFlag = /^(STRONG|MED|SKIP)$/.test(h.flag) ? h.flag : 'SKIP';
-      tr.innerHTML =
-        `<td class="freq-cell">${mhz}</td>` +
-        `<td>${h.rssiAvg} dBm</td>` +
-        `<td>${h.rssiMin} dBm</td>` +
-        `<td>${h.samples}</td>` +
-        `<td class="flag-${safeFlag}">${safeFlag}</td>` +
-        `<td><button class="roll-tune-btn" data-hz="${h.freqHz}">&#9654; Tune</button></td>`;
+      const safeFlag = FLAG_RE.test(h.flag) ? h.flag : 'SKIP';
+      const passTag  = h.pass === 'F' ? ' ·F' : (h.pass === 'C' ? ' ·C' : '');
+      tr.appendChild(cell((h.freqHz / 1e6).toFixed(3) + passTag, 'freq-cell'));
+      tr.appendChild(cell(isFinite(h.rssiAvg) ? `${h.rssiAvg} dBm` : '—'));
+      tr.appendChild(cell(isFinite(h.rssiPeak) ? `${h.rssiPeak} dBm` : '—'));
+      tr.appendChild(cell(h.widthHz !== null && isFinite(h.widthHz)
+        ? `${Math.round(h.widthHz / 1000)} kHz` : '—'));
+      tr.appendChild(cell(safeFlag, `flag-${safeFlag}`));
+      const act = document.createElement('td');
+      const btn = document.createElement('button');
+      btn.className = 'roll-tune-btn';
+      btn.dataset.hz = String(h.freqHz);
+      btn.textContent = '▶ Tune';
+      act.appendChild(btn);
+      tr.appendChild(act);
       frag.appendChild(tr);
     }
     tbody.innerHTML = '';
@@ -1111,10 +1221,8 @@ if (state.captures.length) {
     else if (typeof map !== 'undefined' && map.invalidateSize) {
       setTimeout(() => map.invalidateSize(), 50);
     }
-    // Set state to show this frequency as target
-    state.freqHz = hz;
-    renderReadout();
-    toast(`Target: ${(hz/1e6).toFixed(3)} MHz — tune Flipper then capture`);
+    // Set this frequency as target (main-closure bridge)
+    if (typeof window.rfSetTargetFreq === 'function') window.rfSetTargetFreq(hz);
   });
 
   /* Filter buttons */
@@ -1127,11 +1235,11 @@ if (state.captures.length) {
   });
 
   document.getElementById('rollClear').addEventListener('click', () => {
-    rollHits.length = 0;
+    resetScan();
     rollRunning = false;
-    status.textContent = 'Waiting for Flipper roll scan…';
-    status.className   = 'roll-status idle';
-    progressBar.style.width = '0%';
+    rollV3 = false;
+    setStatus('Waiting for Flipper roll scan…', 'idle');
+    setProgress(0);
     freqCurEl.textContent = '—';
     tbody.innerHTML = '';
     emptyEl.style.display = 'block';

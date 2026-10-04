@@ -48,6 +48,20 @@ jobs:
           node-version: '20'
       - name: Syntax-check JS
         run: node --check android/www/app.js
+      - name: Roll Scan parser (jsdom, real index.html + app.js)
+        run: |
+          npm install --no-save --no-package-lock jsdom@24
+          node android/tests/roll_ui.test.js android/www
+
+  # Hardware-free rolling-scan logic (band plan, CC1101 crash guard, clustering,
+  # fine-pass centroid, preset patching) — host build with ASan/UBSan.
+  scan-logic:
+    name: Scan logic (host unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run rf_scan tests
+        run: make -C flipper/tests
 
   # Build the Flipper FAP exactly as a maintainer would, with ufbt.
   fap:

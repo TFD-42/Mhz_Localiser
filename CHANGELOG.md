@@ -5,6 +5,44 @@ All notable changes to Mhz_Localiser are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow semantic-ish versioning tied to the FAP/APK version.
 
+## [3.0] - 2026-10-04
+
+### Changed
+- **FAP — rolling scan rewritten as a two-pass scan over the CC1101 bands only**
+  (300–348, 387–464, 779–928 MHz). The v2 sweep stepped through the 348–387 and
+  464–779 MHz holes: `subghz_retune()` rejected those frequencies, the return value was
+  ignored, and the radio kept measuring the previous frequency while the stream labelled
+  it with the hole frequency (352 wasted steps × 2 s, and wrong data).
+  - Coarse: 600 kHz steps (< 650 kHz RX filter → contiguous coverage), 100 ms peak-hold.
+  - Fine: 58 kHz filter, 20 kHz steps, ±300 kHz per cluster → centre + −6 dB width.
+  - Chip reset + preset load once per pass instead of on every step.
+  - Threshold `max(−93 dBm, per-band median floor + 10 dB)` on the peak, not the mean.
+  - Coarse pass ≈ 48 s computed (461 points × ~103 ms) instead of > 20 min; plus
+    ~1.3 s per detected cluster for the fine pass. Not yet timed on hardware.
+- **Protocol v3** (backward compatible): `ROLL` gains `pass,floor_dbm,width_hz,cluster,seq`;
+  `rssi_min` renamed `rssi_peak` (same value: strongest sample); new
+  `# RF_LOGGER_RSCAN pos|floor|end|err|warn` event lines.
+- **Android Roll Scan tab**: pass-aware progress, fine results supersede coarse ones,
+  lost-line counter, Peak/Width columns, DOM built with `textContent`.
+
+### Added
+- FAP scan-results screen: OK starts continuous RSSI on the selected hit.
+- `flipper/rf_scan.{c,h}`: hardware-free scan logic; host tests in `flipper/tests`
+  (ASan/UBSan) and `android/tests/roll_ui.test.js` (jsdom), both wired into CI.
+
+### Fixed
+- Possible `furi_crash("SubGhz: Incorrect frequency during set.")` for requests on the
+  firmware's lower window bounds: they pass `is_frequency_valid()` but quantize below
+  the window. Every tune is checked against the CC1101 quantization first.
+- USB CDC writes longer than 64 bytes (e.g. the roll header) overran the endpoint packet
+  buffer; writes are now chunked with TX-complete flow control.
+- Roll Scan **Tune** button threw `ReferenceError: state is not defined` (handler lived
+  outside the main closure) — now goes through `window.rfSetTargetFreq`.
+- SD logging flag stayed `on` after stopping; rolling-scan SD files used the running-mode
+  header; Back during a rolling scan left the SD file open.
+- Removed DB entries the CC1101 cannot tune (169.40 Sigfox, 380.5 Polycom UL,
+  466.025 POCSAG); out-of-band manual values are flagged on screen and blink red on OK.
+
 ## [2.2] - 2026-10-01
 
 ### Added

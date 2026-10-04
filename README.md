@@ -6,12 +6,12 @@
 ![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
 ![Link: USB · BLE](https://img.shields.io/badge/link-USB%20%C2%B7%20BLE-5A29E4?logo=bluetooth&logoColor=white)
 ![Spectrum DB: offline](https://img.shields.io/badge/spectrum%20DB-2%2C967%20rows-2ea043)
-![Rolling scan: 300–928 MHz](https://img.shields.io/badge/rolling%20scan-300–928%20MHz-FF8200)
+![Rolling scan: 2-pass, 300–928 MHz CC1101 bands](https://img.shields.io/badge/rolling%20scan-2--pass%20·%20CC1101%20bands-FF8200)
 ![Status: beta](https://img.shields.io/badge/status-beta-yellow)
 
 **RF signal triangulation + spectrum allocation lookup** — Flipper Zero streams live RSSI over **USB or Bluetooth LE** to an Android app that logs GPS + signal, estimates the transmitter location on a map, and lets you look up the regulatory allocation (USA, ITU, EU per country) of any frequency you observe.
 
-**Contents:** [How it works](#how-it-works) · [What's new in v2.2](#whats-new-in-v22) · [What's new in v2.1](#whats-new-in-v21) · [Operational workflow](#operational-workflow) · [Field validation](#field-validation) · [Physical limitations](#physical-limitations) · [vs. real RF gear](#comparison-with-real-rf-equipment) · [Use cases](#realistic-use-cases) · [Quick start](#quick-start) · [Allocation list](#allocation-list) · [Roll Scan](#roll-scan) · [Build from source](#build-from-source) · [Data protocol](#data-protocol-usb--ble)
+**Contents:** [How it works](#how-it-works) · [What's new in v3.0](#whats-new-in-v30) · [What's new in v2.2](#whats-new-in-v22) · [What's new in v2.1](#whats-new-in-v21) · [Operational workflow](#operational-workflow) · [Field validation](#field-validation) · [Physical limitations](#physical-limitations) · [vs. real RF gear](#comparison-with-real-rf-equipment) · [Use cases](#realistic-use-cases) · [Quick start](#quick-start) · [Allocation list](#allocation-list) · [Roll Scan](#roll-scan) · [Build from source](#build-from-source) · [Data protocol](#data-protocol-usb--ble)
 
 <img width="1254" height="1254" alt="ChatGPT Image 16 mai 2026 à 03_50_03" src="https://github.com/user-attachments/assets/5aa42b1d-563e-409e-b09f-10ac508359c3" />
 
@@ -24,7 +24,7 @@ Mhz_Localiser/
 │   └── RF_Triangulator.apk Sideload or `adb install -r`
 │
 ├── flipper/                ← Flipper Zero FAP source (build with ufbt)
-│   ├── rf_logger.c         Digit editor + DB browser + rolling scan (v2.2)
+│   ├── rf_logger.c         Digit editor + DB browser + 2-pass rolling scan (v3.0)
 │   ├── application.fam     ufbt manifest
 │   └── rf_logger_icon.png
 │
@@ -48,6 +48,21 @@ Mhz_Localiser/
 ├── SETUP.md                build and install instructions
 └── LICENSE                 MIT
 ```
+
+## What's new in v3.0
+
+| Change | Detail |
+|--------|--------|
+| **Rolling scan rewritten — two passes, CC1101 bands only** | Pass 1 (coarse): **300–348 / 387–464 / 779–928 MHz**, 600 kHz steps under a 650 kHz RX filter (no blind gap between steps), 100 ms **peak-hold** dwell. Pass 2 (fine): 58 kHz filter, 20 kHz steps, ±300 kHz around each detection → **centre frequency + occupied width**. Coarse pass ≈ 48 s computed (461 × ~103 ms) + ~1.3 s per hit for the fine pass, instead of > 20 min — not yet timed on hardware. |
+| **No chip reset per step** | The CC1101 is reset and the preset loaded **once per pass**; each step is idle → frequency + calibration → RX, exactly like the stock Frequency Analyzer. |
+| **Adaptive threshold** | A hit must clear `max(−93 dBm, band noise floor + 10 dB)`; the floor is the median of the coarse pass, per band. Peak-hold instead of average, so short OOK bursts are no longer diluted into the noise. |
+| **Results screen on the Flipper** | After the scan, a list of hits (fine centre, peak dBm). **OK** jumps straight into continuous RSSI on that frequency for triangulation. |
+| **Crash guard** | `set_frequency_and_path()` calls `furi_crash()` when the *quantized* frequency leaves its window — this happens for requests exactly on the firmware's lower bounds (299 999 755 / 386 999 938 / 778 999 847 Hz). Every tune is now checked against the quantization first. |
+| **Robust USB stream** | CDC writes are chunked to 64-byte packets with TX-complete flow control (the STM32 endpoint writer does not clamp longer writes and drops writes while busy). |
+| **Protocol v3 (backward compatible)** | `ROLL` lines keep their first 7 columns and add `pass,floor_dbm,width_hz,cluster,seq`; progress/end events go on `# RF_LOGGER_RSCAN` lines, which older APKs ignore. |
+| **Android Roll Scan tab** | Pass-aware progress, fine result replaces the coarse estimate, lost-line counter from `seq`, Peak/Width columns, and the **Tune** button works again (it referenced variables outside its scope). |
+| **Fixes** | SD flag no longer stays `on` after a stop; rolling-scan SD files get the rolling header; Back from a rolling scan closes the SD file; DB entries the CC1101 cannot tune (169.40, 380.5, 466.025 MHz) removed; manual screen flags out-of-band values. |
+| **Tests** | `make -C flipper/tests` (host unit tests, ASan/UBSan) and a jsdom test of the Roll Scan tab, both in CI. |
 
 ## What's new in v2.2
 
@@ -146,7 +161,7 @@ Launch
         Back       — exit app
 
 Frequency DB list
-  └─► Scrollable list of 35 pre-loaded frequencies + CH section
+  └─► Scrollable list of 32 pre-loaded frequencies + CH section
         Up/Down — scroll
         OK      — load selected frequency into manual screen
         Top entry (▶ START ROLL SCAN) → starts rolling scan
@@ -158,11 +173,19 @@ Running state (manual frequency)
         OK   — toggle SD card logging on/off
         Back — return to frequency entry screen
 
-Rolling scan (300–928 MHz)
-  └─► Sweeps 1 MHz per step, 2 s base dwell (3 s for MED signals)
-        RSSI averaged over 10 samples per step
-        Emits ROLL,… lines to USB + BLE stream
-        Back — stop scan and return to frequency entry screen
+Rolling scan (300–348 / 387–464 / 779–928 MHz, ≈ 50 s computed)
+  └─► Pass 1/2 coarse: 600 kHz steps, 650 kHz filter, 100 ms peak-hold
+        Per-band noise floor (median) → threshold max(−93, floor + 10) dBm
+        Adjacent hits merged into clusters (max 16, strongest kept)
+      Pass 2/2 fine: 58 kHz filter, 20 kHz steps, ±300 kHz per cluster
+        → centre frequency (power-weighted) + −6 dB width
+        Emits ROLL,… lines + # RF_LOGGER_RSCAN progress/end to USB + BLE
+        OK   — toggle SD logging      Back — stop scan
+
+Scan results
+  └─► Hits list (centre MHz, peak dBm, F=fine / C=coarse, S/M)
+        OK   — start continuous RSSI on the selected hit
+        Back — return to frequency entry screen
 ```
 
 > **Bluetooth note:** enable **Settings → Bluetooth** on the Flipper so the app can advertise. Keep the official Flipper mobile app closed while connected here — only one BLE central can hold the link at a time.
@@ -359,18 +382,18 @@ Data is bundled into the APK as `spectrum.csv` — **2,967 rows** covering ITU R
 
 ## Roll Scan
 
-The third tab (**Roll Scan**) receives the rolling sweep stream from the Flipper and builds a frequency map of everything active in the 300–928 MHz range.
+The third tab (**Roll Scan**) receives the rolling sweep stream from the Flipper and builds a map of everything active in the three CC1101 bands (300–348, 387–464, 779–928 MHz).
 
 | Column | Description |
 |--------|-------------|
-| Freq (MHz) | Detected frequency |
-| Avg RSSI | Average signal strength over dwell period |
-| Min RSSI | Strongest single sample seen |
-| Samples | Number of CC1101 RSSI samples taken |
-| Signal | STRONG (> −80 dBm) / MED (−100 to −80 dBm) / SKIP |
-| Action | **Tune** — loads the frequency into the Triangulator tab |
+| Freq (MHz) | Fine centre frequency (`·F`) or, until the fine pass reaches it, the strongest coarse step (`·C`) |
+| Avg RSSI | Mean dBm over the dwell at that frequency |
+| Peak RSSI | Strongest sample (peak-hold) |
+| Width | Occupied width: −6 dB width from the fine pass, or the cluster span from the coarse pass |
+| Signal | STRONG (peak ≥ −80 dBm) / MED (detected, below −80 dBm) |
+| Action | **Tune** — sets the frequency as Triangulator target |
 
-Use the **MED+ / All / STRONG only** filter buttons to narrow the table. Results are sorted strongest-first; up to 500 frequencies shown. Tap **Tune** on any row to set that frequency on the Flipper and begin triangulation without leaving the app.
+The status line shows the pass in progress, then the hit count, scan time, per-band noise floor and any lines lost in transit (from the `seq` column). Use **MED+ / All / STRONG only** to filter; results are sorted by peak, strongest first. Older firmware (v2.x stream) is still accepted.
 
 ## Build from Source
 
@@ -436,26 +459,35 @@ ts_ms,req_hz,act_hz,rssi_dbm,rssi_raw,lqi,n
 
 Sample rate: **200 ms (5 Hz)**. The Android app auto-detects frequency from `req_hz`.
 
-### Rolling scan stream
+### Rolling scan stream (v3)
 
 ```
-# RF_LOGGER_ROLL start=300000000 step=1000000 max=928000000
-ROLL,ts_ms,freq_hz,rssi_avg,rssi_min,samples,flag
-ROLL,12345,433920000,-87,-84,10,MED
-ROLL,14345,434920000,-105,-102,10,SKIP
-ROLL,18345,868000000,-76,-72,10,STRONG
+# RF_LOGGER_ROLL v=3 bands=300000000-348000000,387000000-464000000,779000000-928000000 step=600000 bw=650000 dwell_ms=100 fine_step=20000 fine_bw=58000 fine_span=300000 fine_dwell_ms=40 points=461
+ROLL,ts_ms,freq_hz,rssi_avg,rssi_peak,samples,flag,pass,floor_dbm,width_hz,cluster,seq
+# RF_LOGGER_RSCAN pos pass=C idx=16 total=461 hz=309000000
+…
+# RF_LOGGER_RSCAN floor b0=-104 b1=-100 b2=-98 thr0=-93 thr1=-90 thr2=-88
+ROLL,51234,433800000,-70,-60,97,STRONG,C,-100,600000,0,0
+# RF_LOGGER_RSCAN pos pass=F idx=0 total=1 hz=433800000
+ROLL,52610,433921000,-66,-58,1180,STRONG,F,-100,40000,0,1
+# RF_LOGGER_RSCAN end status=ok clusters=1 coarse_ms=48210 total_ms=49640 tune_err=0 usb_drops=0
 ```
 
-| Column     | Type   | Description |
-|------------|--------|-------------|
-| `ts_ms`    | uint64 | Uptime ms at end of dwell |
-| `freq_hz`  | uint32 | Swept frequency Hz |
-| `rssi_avg` | int    | Average dBm over dwell (10 samples) |
-| `rssi_min` | int    | Best (lowest) dBm sample seen |
-| `samples`  | uint16 | Number of RSSI samples taken |
-| `flag`     | string | `STRONG` / `MED` / `SKIP` |
+| Column      | Type   | Description |
+|-------------|--------|-------------|
+| `ts_ms`     | uint32 | Uptime ms when the line was emitted |
+| `freq_hz`   | uint32 | `C`: strongest coarse step · `F`: power-weighted centre of the −3 dB lobe |
+| `rssi_avg`  | int    | Mean dBm over the dwell at `freq_hz` |
+| `rssi_peak` | int    | Peak-hold dBm (was named `rssi_min` in v2, same meaning: strongest sample) |
+| `samples`   | uint32 | RSSI samples behind this line |
+| `flag`      | string | `STRONG` (peak ≥ −80 dBm) / `MED` |
+| `pass`      | char   | `C` coarse / `F` fine |
+| `floor_dbm` | int    | Median noise floor of the band (coarse pass) |
+| `width_hz`  | uint32 | `C`: cluster span · `F`: −6 dB width |
+| `cluster`   | uint   | Cluster id; the `F` line supersedes the `C` line with the same id |
+| `seq`       | uint32 | Line sequence number — a gap means a lost line |
 
-The Android Roll Scan tab detects the `# RF_LOGGER_ROLL` header and switches to roll-parsing mode. BLE packet reassembly is newline-based, so framing is transport-independent.
+Event lines start with `# RF_LOGGER_RSCAN ` followed by `pos`, `floor`, `end`, `err` or `warn` and `key=value` pairs. They do not start with `# RF_LOGGER_ROLL`, so v2 APKs ignore them; v2 APKs also ignore the extra `ROLL` columns. BLE packet reassembly is newline-based, so framing is transport-independent.
 
 ## Security
 

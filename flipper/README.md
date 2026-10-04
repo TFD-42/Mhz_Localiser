@@ -2,7 +2,8 @@
 
 Source for `rf_logger.fap`, the Sub-GHz RSSI logger that runs on the Flipper Zero.
 It samples the CC1101 RSSI at 5 Hz and streams it as CSV over **USB CDC and
-Bluetooth LE simultaneously**, and can also log to the SD card.
+Bluetooth LE simultaneously**, can log to the SD card, and runs a two-pass
+rolling scan of the three CC1101 bands.
 
 ## Build
 
@@ -19,14 +20,17 @@ Output: `dist/rf_logger.fap`. Copy to your Flipper SD card under `/ext/apps/Sub-
 
 | File | Description |
 |---|---|
-| `rf_logger.c` | Application logic: state machine, viewport drawing, input handling, USB CDC + BLE serial streaming, SD logging, Sub-GHz tuning |
+| `rf_logger.c` | Application logic: state machine, viewport drawing, input handling, USB CDC + BLE serial streaming, SD logging, Sub-GHz tuning, rolling-scan engine |
+| `rf_scan.c` / `rf_scan.h` | Hardware-free scan logic: band plan, CC1101 quantization crash guard, noise floor, clustering, fine-pass centroid, preset patching |
+| `tests/` | Host unit tests for `rf_scan.c` — `make -C tests` (ASan/UBSan) |
 | `application.fam` | ufbt manifest: appid, name, category, icon, version, dependencies (`gui`, `subghz`, `bt`) |
 | `rf_logger_icon.png` | 10x10 1-bit icon shown in the Apps menu |
 
 ## Architecture
 
-The app is a **two-state machine** — there is no preset menu (removed in v2). It
-opens directly on the manual frequency editor and BLE advertising starts at launch.
+The app opens directly on the manual frequency editor and BLE advertising starts at
+launch. States: manual entry → DB list → running (single frequency) or rolling scan →
+scan results → running.
 
 ```
 Launch ─► StateManualEntry          (XXX.XX MHz digit editor, default 433.92)
@@ -36,6 +40,24 @@ Launch ─► StateManualEntry          (XXX.XX MHz digit editor, default 433.92
                           │            status line: BT:off / BT:adv / BT:ok
                           └─[Back]──► StateManualEntry
 ```
+
+## Rolling scan (v3)
+
+Entry: top row of the DB list (`▶ START ROLL SCAN`).
+
+| Pass | RX filter | Step | Dwell | Range |
+|---|---|---|---|---|
+| 1 — coarse | 650 kHz (stock `ook_650khz` preset) | 600 kHz | 100 ms peak-hold | 300–348, 387–464, 779–928 MHz (461 points) |
+| 2 — fine | 58 kHz (same preset, MDMCFG4 = 0xF7) | 20 kHz | 40 ms peak-hold | ±300 kHz around each cluster (max 16) |
+
+- One chip reset + preset load per pass; each step is idle → frequency + calibration → RX,
+  then 2 ms settle before sampling (same sequence as the stock Frequency Analyzer).
+- Threshold per band: `max(−93 dBm, median floor + 10 dB)`, applied to the peak.
+- Clusters wider than 1.2 MHz (continuous occupants) are fine-scanned only around their
+  strongest coarse step.
+- Every tune is checked with `rf_scan_hz_path_safe()`: the HAL crashes if the *quantized*
+  frequency leaves its window, which happens for requests exactly on the lower bounds.
+- After the scan: results list; **OK** starts continuous RSSI on the selected hit.
 
 ## Manual MHz digit editor
 

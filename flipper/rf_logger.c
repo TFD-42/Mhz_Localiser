@@ -2,13 +2,21 @@
  * rf_logger.c — Sub-GHz RSSI logger for Flipper Zero
  *
  * CSV over USB CDC ch1 (ch0 stays as CLI). Takes over the USB stack with
- * dual-CDC when entering Running state, restores on exit.
+ * dual-CDC when entering Running/Rolling state, restores on exit.
  *
  * The same CSV lines are also streamed over BLE: at launch the app swaps
  * the BLE stack to its own Serial profile instance (same GATT service the
  * stock CLI-over-BLE uses, so phone-side code is identical for both) and
- * transmits every sample to the connected central. Default profile is
+ * transmits every line to the connected central. Default profile is
  * restored on exit. Requires Bluetooth ON in Flipper settings to advertise.
+ *
+ * Rolling scan (v3): two passes over the three CC1101 bands only.
+ *   pass C (coarse): 650 kHz RX filter, 600 kHz steps, 100 ms peak-hold dwell,
+ *                    no chip reset between steps (idle → set freq+cal → rx).
+ *   pass F (fine)  : 58 kHz RX filter, 20 kHz steps, +/-300 kHz around each
+ *                    coarse cluster → centre frequency + occupied width.
+ * Detection threshold = max(-93 dBm, band noise floor (median) + 10 dB).
+ * Pure scan logic lives in rf_scan.c (host unit-tested).
  */
 
 #include <furi.h>
@@ -26,14 +34,27 @@
 #include <profiles/serial_profile.h>
 #include <lib/subghz/devices/cc1101_configs.h>
 
+#include "rf_scan.h"
+
 #define TAG               "rf_logger"
 #define SAMPLE_PERIOD_MS  200u
 #define VCP_DATA_CH       1u
 #define LOG_DIR           EXT_PATH("apps_data/rf_logger")
+#define CDC_TX_WAIT_MS    5u
+#define ROLL_POS_EVERY    16u
 
-typedef enum { StateManualEntry, StateDbList, StateRolling, StateRunning } AppState;
+typedef enum {
+    StateManualEntry,
+    StateDbList,
+    StateRolling,
+    StateRollResults,
+    StateRunning,
+} AppState;
 
-/* ---- Frequency DB (embedded, Sub-GHz focus) ---- */
+/* ---- Frequency DB (embedded, Sub-GHz focus) ----
+ * Only CC1101-tunable entries: 300-348, 387-464, 779-928 MHz. Entries in the
+ * holes (169.40 Sigfox, 380.5 Polycom UL, 466.025 POCSAG) were removed: the
+ * radio cannot tune them, so selecting them could never produce a reading. */
 typedef struct {
     uint32_t    hz;
     const char* label;  // up to 21 chars visible on Flipper screen
@@ -42,7 +63,7 @@ typedef struct {
 
 /* hz=0 is the sentinel for the "Start Roll Scan" action */
 static const FreqEntry FREQ_DB[] = {
-    { 0u,          "\x10 START ROLL SCAN",  "300-928"}, // \x10 = right-arrow glyph
+    { 0u,          "\x10 START ROLL SCAN",  "2-pass"}, // \x10 = right-arrow glyph
     /* ISM / SRD — ALL regions */
     { 315000000u, "315 ISM (US/JP)",     "US"    },
     { 433920000u, "433.92 ISM/SRD",      "EU/CH" },
@@ -68,14 +89,11 @@ static const FreqEntry FREQ_DB[] = {
     /* PMR / walkie-talkie */
     { 446006250u, "446.006 PMR446 ch1",  "EU/CH" },
     { 446093750u, "446.093 PMR446 ch8",  "EU/CH" },
-    /* POCSAG / pager */
-    { 466025000u, "466.02 POCSAG",       "EU"    },
     /* OpenGarage / Metering */
     { 433920000u, "433.92 SmartMeter",   "EU/CH" },
     /* Aircraft / ADS-B adjacent */
     { 868000000u, "868.00 FLARM",        "EU/CH" },
-    /* Polycom / TETRA (CH emergency) */
-    { 380500000u, "380.5 Polycom UL",    "CH"    },
+    /* Polycom / TETRA (CH emergency) — UL 380.5 is in the CC1101 hole */
     { 390500000u, "390.5 Polycom DL",    "CH"    },
     /* GSM-R (SBB) */
     { 877500000u, "877.5 GSM-R UL SBB", "CH"    },
@@ -86,9 +104,7 @@ static const FreqEntry FREQ_DB[] = {
     { 863000000u, "863.00 SRD low EU",   "EU/CH" },
     { 870000000u, "870.00 SRD high EU",  "EU/CH" },
     /* Sub-1GHz IoT */
-    { 169400000u, "169.40 Sigfox EU",    "EU/CH" },
     { 868800000u, "868.80 Sigfox EU",    "EU/CH" },
-    /* NFC / HF (near Sub-GHz for reference) */
     { 300000000u, "300.00 ---- min ----","ALL"   },
 };
 #define FREQ_DB_LEN ((int)(sizeof(FREQ_DB) / sizeof(FREQ_DB[0])))
@@ -106,18 +122,40 @@ static const uint32_t MANUAL_DIGIT_HZ[MANUAL_DIGITS] = {
 #define MANUAL_MIN_HZ 300000000u
 #define MANUAL_MAX_HZ 928000000u
 
+/* ---- Rolling scan state ---- */
+typedef enum { RollPhaseIdle, RollPhaseCoarse, RollPhaseFine } RollPhase;
+
+typedef struct {
+    RollPhase phase;
+    uint32_t plan_len;
+    uint32_t idx;                 // coarse plan index
+    RfScanStat* stats;            // plan_len entries (heap, coarse pass only)
+    int16_t* scratch;             // plan_len entries (heap, median)
+    int16_t floor_dbm[RF_SCAN_BAND_COUNT];
+    RfScanCluster clusters[RF_SCAN_MAX_CLUSTERS];
+    uint8_t cluster_count;
+    uint8_t cluster_idx;
+    RfScanWindow win;
+    uint32_t win_idx;
+    int16_t fine_peak[RF_SCAN_FINE_MAX_STEPS];
+    int16_t fine_mean[RF_SCAN_FINE_MAX_STEPS];
+    uint32_t fine_samples;
+    uint8_t fine_preset[RF_SCAN_PRESET_MAX];
+    bool fine_preset_ok;
+    uint32_t cur_hz;              // display: frequency being measured
+    int16_t cur_peak_dbm;         // display: last peak
+    uint32_t tune_errors;
+    uint32_t seq;                 // ROLL line sequence (gap = lost line)
+    uint32_t t_start;
+    uint32_t t_coarse_ms;
+    uint8_t result_cursor;
+} RollScan;
+
 typedef struct {
     AppState state;
     int      db_cursor;   // index in FREQ_DB[]
 
-    /* Rolling scan state */
-    uint32_t roll_hz;          // current frequency being evaluated
-    uint32_t roll_end_tick;    // tick when to move on from this frequency
-    int32_t  roll_rssi_sum;    // sum of RSSI samples
-    int      roll_rssi_min;    // strongest (most negative) sample
-    uint16_t roll_n;           // samples accumulated
-    bool     roll_dwell;       // true during extended dwell (MED/STRONG)
-    char     roll_last_flag[8];// last flag sent, for display
+    RollScan roll;
 
     uint32_t freq_req_hz;
     uint32_t freq_act_hz;
@@ -137,6 +175,8 @@ typedef struct {
     Storage* storage;
     FuriHalUsbInterface* prev_usb;
     bool usb_taken;
+    FuriSemaphore* cdc_tx_sem;
+    uint32_t cdc_drops;
     Bt* bt;
     FuriHalBleProfileBase* ble_profile;
     volatile BtStatus bt_status;
@@ -144,9 +184,14 @@ typedef struct {
     uint32_t next_profile_retry;
 } RfLoggerApp;
 
+static const char RUN_CSV_HEADER[] = "ts_ms,req_hz,act_hz,rssi_dbm,rssi_raw,lqi,n\r\n";
+static const char ROLL_CSV_HEADER[] =
+    "ROLL,ts_ms,freq_hz,rssi_avg,rssi_peak,samples,flag,pass,floor_dbm,width_hz,cluster,seq\r\n";
+
 /* Forward declarations (defined later in file) */
 static void draw_signal_bar(Canvas* canvas, int x, int y, int w, int h, int rssi_dbm);
 static void manual_clamp(RfLoggerApp* app);
+static void start_running(RfLoggerApp* app, uint32_t hz);
 
 /* ---- BLE serial streaming ---- */
 
@@ -201,74 +246,164 @@ static void ble_stop(RfLoggerApp* app) {
     app->ble_profile = NULL;
 }
 
+/* ---- USB CDC (interface 1) with flow control ----
+ * The STM32 endpoint writer copies the whole buffer into a 64-byte packet
+ * buffer without clamping and drops the write if the endpoint is still busy
+ * (libusb_stm32 ep_write). So: chunk at CDC_DATA_SZ and only send while
+ * holding the single TX token, which the TX-complete callback hands back. */
+
+static void cdc_tx_done_cb(void* ctx) {
+    RfLoggerApp* app = ctx;
+    furi_semaphore_release(app->cdc_tx_sem);
+}
+
+static void cdc_state_cb(void* ctx, CdcState state) {
+    RfLoggerApp* app = ctx;
+    /* (re)enumeration: no packet in flight any more → token is free */
+    if(state == CdcStateConnected) furi_semaphore_release(app->cdc_tx_sem);
+}
+
+static CdcCallbacks cdc_callbacks = {
+    .tx_ep_callback = cdc_tx_done_cb,
+    .rx_ep_callback = NULL,
+    .state_callback = cdc_state_cb,
+    .ctrl_line_callback = NULL,
+    .config_callback = NULL,
+};
+
 static void usb_take(RfLoggerApp* app) {
     if(app->usb_taken) return;
     app->prev_usb = furi_hal_usb_get_config();
     furi_hal_usb_unlock();
-    if(furi_hal_usb_set_config(&usb_cdc_dual, NULL)) app->usb_taken = true;
+    if(furi_hal_usb_set_config(&usb_cdc_dual, NULL)) {
+        app->usb_taken = true;
+        furi_hal_cdc_set_callbacks(VCP_DATA_CH, &cdc_callbacks, app);
+    } else {
+        FURI_LOG_E(TAG, "usb_cdc_dual config refused");
+    }
 }
 
 static void usb_release(RfLoggerApp* app) {
     if(!app->usb_taken) return;
+    furi_hal_cdc_set_callbacks(VCP_DATA_CH, NULL, NULL);
     furi_hal_usb_set_config(app->prev_usb, NULL);
     app->usb_taken = false;
 }
 
-static void cdc_write(const char* s) {
-    if(s) furi_hal_cdc_send(VCP_DATA_CH, (uint8_t*)s, (uint16_t)strlen(s));
+static void cdc_send(RfLoggerApp* app, const char* s, size_t len) {
+    if(!app->usb_taken || !s) return;
+    size_t off = 0;
+    while(off < len) {
+        if(furi_semaphore_acquire(app->cdc_tx_sem, furi_ms_to_ticks(CDC_TX_WAIT_MS)) !=
+           FuriStatusOk) {
+            app->cdc_drops++; // host not draining: drop the rest of the line
+            return;
+        }
+        size_t chunk = len - off;
+        if(chunk > CDC_DATA_SZ) chunk = CDC_DATA_SZ;
+        furi_hal_cdc_send(VCP_DATA_CH, (uint8_t*)(s + off), (uint16_t)chunk);
+        off += chunk;
+    }
 }
 
-static void cdc_printf(const char* fmt, ...) {
-    char buf[160];
-    va_list ap; va_start(ap, fmt);
-    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
-    va_end(ap);
-    if(n > 0) furi_hal_cdc_send(VCP_DATA_CH, (uint8_t*)buf, (uint16_t)n);
-}
+/* ---- SD logging ---- */
 
-static void log_open(RfLoggerApp* app) {
+static void log_open(RfLoggerApp* app, const char* header) {
     storage_simply_mkdir(app->storage, LOG_DIR);
     char path[96];
     snprintf(path, sizeof(path), LOG_DIR "/log_%lu.csv", (unsigned long)furi_get_tick());
     app->log_file = storage_file_alloc(app->storage);
     if(!storage_file_open(app->log_file, path, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
-        storage_file_free(app->log_file); app->log_file = NULL; app->sd_logging = false; return;
+        FURI_LOG_E(TAG, "cannot open %s", path);
+        storage_file_free(app->log_file);
+        app->log_file = NULL;
+        app->sd_logging = false;
+        notification_message(app->notifications, &sequence_error);
+        return;
     }
-    const char* h = "ts_ms,req_hz,act_hz,rssi_dbm,rssi_raw,lqi,n\n";
-    storage_file_write(app->log_file, h, strlen(h));
+    app->sd_logging = true;
+    if(header) storage_file_write(app->log_file, header, strlen(header));
 }
 
 static void log_close(RfLoggerApp* app) {
-    if(app->log_file) { storage_file_close(app->log_file); storage_file_free(app->log_file); app->log_file = NULL; }
+    if(app->log_file) {
+        storage_file_close(app->log_file);
+        storage_file_free(app->log_file);
+        app->log_file = NULL;
+    }
+    app->sd_logging = false;
 }
 
-static void log_write_line(RfLoggerApp* app, const char* line) {
-    if(app->log_file) storage_file_write(app->log_file, line, strlen(line));
+static void log_toggle(RfLoggerApp* app, const char* header) {
+    if(app->sd_logging) log_close(app);
+    else log_open(app, header);
 }
+
+/* One line → USB CDC + BLE + SD (identical bytes on every transport). */
+static void stream_line(RfLoggerApp* app, const char* line, size_t len) {
+    if(!line || len == 0) return;
+    cdc_send(app, line, len);
+    /* Don't gate BLE TX on a cached status enum — that callback proved
+     * unreliable for a custom profile, silently starving the phone.
+     * The serial profile itself returns false when there's no subscriber,
+     * so an unconditional call is safe and self-correcting. */
+    if(app->ble_profile && len <= BLE_PROFILE_SERIAL_PACKET_SIZE_MAX)
+        ble_profile_serial_tx(app->ble_profile, (uint8_t*)line, (uint16_t)len);
+    if(app->sd_logging && app->log_file) storage_file_write(app->log_file, line, len);
+}
+
+static void stream_printf(RfLoggerApp* app, const char* fmt, ...) {
+    char buf[256];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if(n <= 0) return;
+    if((size_t)n >= sizeof(buf)) n = sizeof(buf) - 1; // truncated, still a line
+    stream_line(app, buf, (size_t)n);
+}
+
+/* ---- Radio ---- */
 
 static bool subghz_running = false;
 
-static bool subghz_retune(RfLoggerApp* app, uint32_t hz) {
-    if(!furi_hal_subghz_is_frequency_valid(hz)) return false;
+/* Retune without resetting the chip: IDLE → FREQ + calibration (inside the
+ * HAL) → RX. The HAL crashes on a frequency whose quantized value leaves the
+ * path windows, so both gates are checked first. */
+static bool radio_tune(uint32_t hz, uint32_t* act_hz) {
+    if(!furi_hal_subghz_is_frequency_valid(hz) || !rf_scan_hz_path_safe(hz)) return false;
     furi_hal_subghz_idle();
-    furi_hal_subghz_reset();
-    furi_hal_subghz_load_custom_preset(subghz_device_cc1101_preset_ook_650khz_async_regs);
-    app->freq_req_hz = hz;
-    app->freq_act_hz = furi_hal_subghz_set_frequency_and_path(hz);
-    app->n = 0;
+    uint32_t act = furi_hal_subghz_set_frequency_and_path(hz);
     furi_hal_subghz_rx();
-    cdc_printf("# RF_LOGGER_DBG req=%lu act=%lu\r\n",
-               (unsigned long)hz, (unsigned long)app->freq_act_hz);
-    cdc_write("ts_ms,req_hz,act_hz,rssi_dbm,rssi_raw,lqi,n\r\n");
+    if(act_hz) *act_hz = act;
     return true;
 }
 
-static bool subghz_start(RfLoggerApp* app, uint32_t hz) {
+/* Peak-hold + mean over dwell_ms, ~1 sample/ms after the RSSI settles. */
+static void radio_measure(uint32_t dwell_ms, RfScanStat* out) {
+    furi_delay_ms(RF_SCAN_SETTLE_MS);
+    uint32_t t0 = furi_get_tick();
+    uint32_t span = furi_ms_to_ticks(dwell_ms);
+    int32_t sum = 0;
+    int16_t peak = RF_SCAN_NO_SIGNAL_DBM;
+    uint16_t n = 0;
+    do {
+        int16_t r = rf_scan_dbm_round(furi_hal_subghz_get_rssi());
+        sum += r;
+        if(r > peak) peak = r;
+        n++;
+        furi_delay_ms(1);
+    } while((furi_get_tick() - t0) < span && n < 0xFFFFu);
+    out->mean_dbm = (int16_t)(sum / (int32_t)n);
+    out->peak_dbm = peak;
+    out->samples = n;
+}
+
+static void radio_power_on(void) {
     if(!subghz_running) {
         furi_hal_power_suppress_charge_enter();
         subghz_running = true;
     }
-    return subghz_retune(app, hz);
 }
 
 static void subghz_stop(void) {
@@ -278,6 +413,20 @@ static void subghz_stop(void) {
     furi_hal_subghz_sleep();
     furi_hal_power_suppress_charge_exit();
     subghz_running = false;
+}
+
+/* Single-frequency mode: one preset load (it already resets the chip). */
+static bool subghz_start(RfLoggerApp* app, uint32_t hz) {
+    if(!furi_hal_subghz_is_frequency_valid(hz) || !rf_scan_hz_path_safe(hz)) return false;
+    radio_power_on();
+    furi_hal_subghz_load_custom_preset(subghz_device_cc1101_preset_ook_650khz_async_regs);
+    app->freq_req_hz = hz;
+    if(!radio_tune(hz, &app->freq_act_hz)) return false;
+    app->n = 0;
+    stream_printf(app, "# RF_LOGGER_DBG req=%lu act=%lu\r\n",
+                  (unsigned long)hz, (unsigned long)app->freq_act_hz);
+    stream_line(app, RUN_CSV_HEADER, strlen(RUN_CSV_HEADER));
+    return true;
 }
 
 static void sample_once(RfLoggerApp* app) {
@@ -296,127 +445,285 @@ static void sample_once(RfLoggerApp* app) {
                        (unsigned long)app->freq_act_hz,
                        app->rssi_dbm, app->rssi_raw,
                        (unsigned)app->lqi, (unsigned long)app->n);
-    if(len > 0) {
-        furi_hal_cdc_send(VCP_DATA_CH, (uint8_t*)line, (uint16_t)len);
-        /* Don't gate BLE TX on a cached status enum — that callback proved
-         * unreliable for a custom profile, silently starving the phone.
-         * The serial profile itself returns false when there's no subscriber,
-         * so an unconditional call is safe and self-correcting. */
-        if(app->ble_profile)
-            ble_profile_serial_tx(app->ble_profile, (uint8_t*)line, (uint16_t)len);
-        if(app->sd_logging) log_write_line(app, line);
+    if(len > 0) stream_line(app, line, (size_t)len);
+}
+
+/* ---- Rolling scan engine ---- */
+
+static void roll_free(RollScan* r) {
+    if(r->stats) { free(r->stats); r->stats = NULL; }
+    if(r->scratch) { free(r->scratch); r->scratch = NULL; }
+}
+
+static void roll_emit(RfLoggerApp* app, const RfScanCluster* c, uint8_t id, bool fine) {
+    RollScan* r = &app->roll;
+    uint32_t hz = fine ? c->center_hz : c->peak_hz;
+    int16_t peak = fine ? c->fine_peak_dbm : c->peak_dbm;
+    int16_t mean = fine ? c->fine_mean_dbm : c->mean_dbm;
+    uint32_t width = fine ? c->width_hz : (c->hi_hz - c->lo_hz) + RF_SCAN_COARSE_STEP_HZ;
+    uint32_t samples = fine ? c->fine_samples : c->samples;
+    stream_printf(app, "ROLL,%lu,%lu,%d,%d,%lu,%s,%c,%d,%lu,%u,%lu\r\n",
+                  (unsigned long)furi_get_tick(), (unsigned long)hz,
+                  mean, peak, (unsigned long)samples, rf_scan_flag(peak),
+                  fine ? 'F' : 'C', c->floor_dbm, (unsigned long)width,
+                  (unsigned)id, (unsigned long)r->seq++);
+}
+
+static void roll_finish(RfLoggerApp* app, bool aborted) {
+    RollScan* r = &app->roll;
+    uint32_t total_ms = furi_get_tick() - r->t_start;
+    stream_printf(app, "# RF_LOGGER_RSCAN end status=%s clusters=%u coarse_ms=%lu total_ms=%lu "
+                       "tune_err=%lu usb_drops=%lu\r\n",
+                  aborted ? "aborted" : "ok", (unsigned)r->cluster_count,
+                  (unsigned long)r->t_coarse_ms, (unsigned long)total_ms,
+                  (unsigned long)r->tune_errors, (unsigned long)app->cdc_drops);
+    subghz_stop();
+    log_close(app);
+    roll_free(r);
+    r->phase = RollPhaseIdle;
+    notification_message(app->notifications, &sequence_blink_stop);
+    if(!aborted && r->cluster_count > 0) {
+        r->result_cursor = 0;
+        app->state = StateRollResults;
+        notification_message(app->notifications, &sequence_success);
+    } else {
+        app->state = StateManualEntry;
     }
 }
 
+static bool roll_begin(RfLoggerApp* app) {
+    RollScan* r = &app->roll;
+    roll_free(r);
+    memset(r, 0, sizeof(*r));
+    r->plan_len = rf_scan_plan_len(RF_SCAN_COARSE_STEP_HZ);
+    r->stats = malloc(sizeof(RfScanStat) * r->plan_len);
+    r->scratch = malloc(sizeof(int16_t) * r->plan_len);
+    memset(r->stats, 0, sizeof(RfScanStat) * r->plan_len);
+    r->fine_preset_ok = rf_scan_clone_preset(
+                            subghz_device_cc1101_preset_ook_650khz_async_regs,
+                            r->fine_preset, sizeof(r->fine_preset),
+                            RF_SCAN_REG_MDMCFG4, RF_SCAN_MDMCFG4_58KHZ) > 0;
 
-/* ---- Rolling scan helpers ---- */
-#define ROLL_STEP_HZ     1000000u   // 1 MHz per step
-#define ROLL_DWELL_MS    2000u      // base dwell: 2 s
-#define ROLL_EXTRA_MS    1000u      // extra dwell if MED or STRONG
-#define ROLL_THRESH_MED  (-100)     // RSSI > -100 dBm → at least MED
-#define ROLL_THRESH_STRONG (-80)    // RSSI > -80 dBm → STRONG
+    usb_take(app);
+    radio_power_on();
+    /* Single chip reset + preset load for the whole coarse pass. */
+    furi_hal_subghz_load_custom_preset(subghz_device_cc1101_preset_ook_650khz_async_regs);
 
-static void roll_sample_acc(RfLoggerApp* app) {
-    float f = furi_hal_subghz_get_rssi();
-    int   r = (int)f;
-    app->roll_rssi_sum += (int32_t)r;
-    if(app->roll_n == 0 || r > app->roll_rssi_min) app->roll_rssi_min = r;
-    app->roll_n++;
+    stream_printf(app,
+                  "# RF_LOGGER_ROLL v=3 bands=%lu-%lu,%lu-%lu,%lu-%lu step=%lu bw=%lu dwell_ms=%lu "
+                  "fine_step=%lu fine_bw=%lu fine_span=%lu fine_dwell_ms=%lu points=%lu\r\n",
+                  (unsigned long)rf_scan_bands[0].lo_hz, (unsigned long)rf_scan_bands[0].hi_hz,
+                  (unsigned long)rf_scan_bands[1].lo_hz, (unsigned long)rf_scan_bands[1].hi_hz,
+                  (unsigned long)rf_scan_bands[2].lo_hz, (unsigned long)rf_scan_bands[2].hi_hz,
+                  (unsigned long)RF_SCAN_COARSE_STEP_HZ, (unsigned long)RF_SCAN_COARSE_BW_HZ,
+                  (unsigned long)RF_SCAN_COARSE_DWELL_MS, (unsigned long)RF_SCAN_FINE_STEP_HZ,
+                  (unsigned long)RF_SCAN_FINE_BW_HZ, (unsigned long)RF_SCAN_FINE_SPAN_HZ,
+                  (unsigned long)RF_SCAN_FINE_DWELL_MS, (unsigned long)r->plan_len);
+    stream_line(app, ROLL_CSV_HEADER, strlen(ROLL_CSV_HEADER));
+    if(!r->fine_preset_ok)
+        stream_printf(app, "# RF_LOGGER_RSCAN warn fine_preset=unavailable (coarse only)\r\n");
+
+    r->t_start = furi_get_tick();
+    r->cur_peak_dbm = RF_SCAN_NO_SIGNAL_DBM;
+    r->phase = RollPhaseCoarse;
+    app->state = StateRolling;
+    notification_message(app->notifications, &sequence_blink_start_cyan);
+    return true;
 }
 
-static void roll_emit(RfLoggerApp* app, int avg, const char* flag) {
-    char line[128];
-    int len = snprintf(line, sizeof(line),
-        "ROLL,%lu,%lu,%d,%d,%u,%s\r\n",
-        (unsigned long)furi_get_tick(),
-        (unsigned long)app->roll_hz,
-        avg, app->roll_rssi_min,
-        (unsigned)app->roll_n, flag);
-    if(len > 0) {
-        furi_hal_cdc_send(VCP_DATA_CH, (uint8_t*)line, (uint16_t)len);
-        if(app->ble_profile)
-            ble_profile_serial_tx(app->ble_profile, (uint8_t*)line, (uint16_t)len);
-        if(app->sd_logging) log_write_line(app, line);
-    }
-    strncpy(app->roll_last_flag, flag, sizeof(app->roll_last_flag)-1);
-}
-
-/* Called from the main loop every SAMPLE_PERIOD_MS while StateRolling.
- * Returns true when rolling scan completes (caller should switch state). */
-static bool roll_tick(RfLoggerApp* app) {
-    uint32_t now = furi_get_tick();
-    roll_sample_acc(app);
-    if(now < app->roll_end_tick) return false; // still dwelling
-
-    if(app->roll_n > 0) {
-        int avg = (int)(app->roll_rssi_sum / (int32_t)app->roll_n);
-        if(avg >= ROLL_THRESH_MED) { // signal present
-            const char* flag = (avg >= ROLL_THRESH_STRONG) ? "STRONG" : "MED";
-            if(!app->roll_dwell) {
-                // first pass: emit result, extend dwell for detail samples
-                roll_emit(app, avg, flag);
-                app->roll_dwell    = true;
-                app->roll_end_tick = now + ROLL_EXTRA_MS;
-                return false;
-            }
-            // second pass: emit updated average with more samples
-            int avg2 = (int)(app->roll_rssi_sum / (int32_t)app->roll_n);
-            const char* flag2 = (avg2 >= ROLL_THRESH_STRONG) ? "STRONG" : "MED";
-            roll_emit(app, avg2, flag2);
+static void roll_start_fine_window(RfLoggerApp* app) {
+    RollScan* r = &app->roll;
+    while(r->cluster_idx < r->cluster_count) {
+        if(rf_scan_fine_window(&r->clusters[r->cluster_idx], &r->win)) {
+            r->win_idx = 0;
+            r->fine_samples = 0;
+            stream_printf(app, "# RF_LOGGER_RSCAN pos pass=F idx=%u total=%u hz=%lu\r\n",
+                          (unsigned)r->cluster_idx, (unsigned)r->cluster_count,
+                          (unsigned long)r->clusters[r->cluster_idx].peak_hz);
+            return;
         }
-        // SKIP: don't emit (keep stream quiet for noise floor)
+        r->cluster_idx++; // no valid window: keep the coarse estimate
+    }
+}
+
+/* Coarse pass done: floors → clusters → C lines → fine pass or finish. */
+static void roll_coarse_done(RfLoggerApp* app) {
+    RollScan* r = &app->roll;
+    r->t_coarse_ms = furi_get_tick() - r->t_start;
+    for(uint8_t b = 0; b < RF_SCAN_BAND_COUNT; b++) {
+        r->floor_dbm[b] = rf_scan_band_floor(r->stats, r->plan_len, RF_SCAN_COARSE_STEP_HZ, b,
+                                             r->scratch);
+    }
+    stream_printf(app, "# RF_LOGGER_RSCAN floor b0=%d b1=%d b2=%d thr0=%d thr1=%d thr2=%d\r\n",
+                  r->floor_dbm[0], r->floor_dbm[1], r->floor_dbm[2],
+                  rf_scan_threshold(r->floor_dbm[0]), rf_scan_threshold(r->floor_dbm[1]),
+                  rf_scan_threshold(r->floor_dbm[2]));
+    r->cluster_count = (uint8_t)rf_scan_find_clusters(r->stats, r->plan_len,
+                                                      RF_SCAN_COARSE_STEP_HZ, r->floor_dbm,
+                                                      r->clusters, RF_SCAN_MAX_CLUSTERS);
+    for(uint8_t i = 0; i < r->cluster_count; i++) roll_emit(app, &r->clusters[i], i, false);
+    /* coarse buffers no longer needed */
+    roll_free(r);
+
+    if(r->cluster_count == 0 || !r->fine_preset_ok) {
+        roll_finish(app, false);
+        return;
+    }
+    furi_hal_subghz_idle();
+    furi_hal_subghz_load_custom_preset(r->fine_preset); // one reset for the fine pass
+    r->cluster_idx = 0;
+    r->phase = RollPhaseFine;
+    roll_start_fine_window(app);
+    if(r->cluster_idx >= r->cluster_count) roll_finish(app, false);
+}
+
+/* One measurement step. Radio work runs WITHOUT the GUI mutex (only this
+ * thread touches the radio); shared fields are committed under it. */
+static void roll_step(RfLoggerApp* app) {
+    RollScan* r = &app->roll;
+    RfScanStat st = {RF_SCAN_NO_SIGNAL_DBM, RF_SCAN_NO_SIGNAL_DBM, 0};
+    uint32_t hz = 0;
+
+    if(r->phase == RollPhaseCoarse) {
+        uint8_t band = 0;
+        if(!rf_scan_plan_at(RF_SCAN_COARSE_STEP_HZ, r->idx, &hz, &band)) return;
+        bool ok = radio_tune(hz, NULL);
+        if(ok) radio_measure(RF_SCAN_COARSE_DWELL_MS, &st);
+
+        furi_mutex_acquire(app->mutex, FuriWaitForever);
+        if(!ok) {
+            r->tune_errors++;
+            stream_printf(app, "# RF_LOGGER_RSCAN err tune hz=%lu\r\n", (unsigned long)hz);
+        }
+        r->stats[r->idx] = st; // samples==0 marks a failed step (excluded)
+        r->cur_hz = hz;
+        r->cur_peak_dbm = st.peak_dbm;
+        r->idx++;
+        if((r->idx % ROLL_POS_EVERY) == 0 || r->idx == r->plan_len)
+            stream_printf(app, "# RF_LOGGER_RSCAN pos pass=C idx=%lu total=%lu hz=%lu\r\n",
+                          (unsigned long)r->idx, (unsigned long)r->plan_len, (unsigned long)hz);
+        if(r->idx >= r->plan_len) roll_coarse_done(app);
+        furi_mutex_release(app->mutex);
+        return;
     }
 
-    // Advance to next frequency
-    uint32_t next = app->roll_hz + ROLL_STEP_HZ;
-    if(next > MANUAL_MAX_HZ) return true; // done
+    if(r->phase == RollPhaseFine) {
+        hz = r->win.start_hz + r->win_idx * RF_SCAN_FINE_STEP_HZ;
+        bool ok = radio_tune(hz, NULL);
+        if(ok) radio_measure(RF_SCAN_FINE_DWELL_MS, &st);
 
-    app->roll_hz       = next;
-    app->roll_rssi_sum = 0;
-    app->roll_rssi_min = 0;
-    app->roll_n        = 0;
-    app->roll_dwell    = false;
-    subghz_retune(app, app->roll_hz);
-    app->roll_end_tick = furi_get_tick() + ROLL_DWELL_MS;
-    return false;
+        furi_mutex_acquire(app->mutex, FuriWaitForever);
+        if(!ok) r->tune_errors++;
+        r->fine_peak[r->win_idx] = st.peak_dbm;
+        r->fine_mean[r->win_idx] = st.mean_dbm;
+        r->fine_samples += st.samples;
+        r->cur_hz = hz;
+        r->cur_peak_dbm = st.peak_dbm;
+        r->win_idx++;
+        if(r->win_idx >= r->win.count) {
+            RfScanCluster* c = &r->clusters[r->cluster_idx];
+            RfScanFine f;
+            if(rf_scan_fine_analyze(r->fine_peak, r->win.count, r->win.start_hz,
+                                    RF_SCAN_FINE_STEP_HZ, &f)) {
+                c->fine_done = true;
+                c->center_hz = f.center_hz;
+                c->width_hz = f.width_hz;
+                c->fine_peak_dbm = f.peak_dbm;
+                c->fine_mean_dbm = r->fine_mean[f.peak_index];
+                c->fine_samples = r->fine_samples;
+                roll_emit(app, c, r->cluster_idx, true);
+            }
+            r->cluster_idx++;
+            roll_start_fine_window(app);
+            if(r->cluster_idx >= r->cluster_count) roll_finish(app, false);
+        }
+        furi_mutex_release(app->mutex);
+    }
 }
+
+/* Frequency to hand to single-frequency mode from a scan result. */
+static uint32_t roll_result_hz(const RfScanCluster* c) {
+    uint32_t hz = c->fine_done ? c->center_hz : c->peak_hz;
+    if(!rf_scan_hz_path_safe(hz)) hz = c->peak_hz;
+    return hz;
+}
+
+/* ---- Drawing ---- */
 
 static void draw_rolling_scan(Canvas* canvas, RfLoggerApp* app) {
+    RollScan* r = &app->roll;
     canvas_clear(canvas);
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str(canvas, 2, 10, "Roll Scan");
+    canvas_draw_str(canvas, 2, 10, r->phase == RollPhaseFine ? "Roll 2/2 fine" : "Roll 1/2 coarse");
+    canvas_set_font(canvas, FontSecondary);
+    char hits[16];
+    snprintf(hits, sizeof(hits), "hits:%u", (unsigned)r->cluster_count);
+    if(r->phase == RollPhaseFine) canvas_draw_str(canvas, 92, 10, hits);
 
-    // Frequency + flag
     canvas_set_font(canvas, FontBigNumbers);
     char freq[24];
     snprintf(freq, sizeof(freq), "%lu.%02lu",
-             (unsigned long)(app->roll_hz / 1000000u),
-             (unsigned long)((app->roll_hz / 10000u) % 100u));
-    canvas_draw_str(canvas, 2, 34, freq);
+             (unsigned long)(r->cur_hz / 1000000u),
+             (unsigned long)((r->cur_hz / 10000u) % 100u));
+    canvas_draw_str(canvas, 2, 32, freq);
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str(canvas, 82, 34, "MHz");
+    canvas_draw_str(canvas, 82, 32, "MHz");
 
-    // Last flag
-    const char* flag = app->roll_last_flag[0] ? app->roll_last_flag : "---";
-    canvas_draw_str(canvas, 95, 26, flag);
-
-    // RSSI if we have samples
-    if(app->roll_n > 0) {
-        int avg = (int)(app->roll_rssi_sum / (int32_t)app->roll_n);
-        char rssi[16];
-        snprintf(rssi, sizeof(rssi), "%d dBm", avg);
-        canvas_draw_str(canvas, 2, 46, rssi);
-        draw_signal_bar(canvas, 2, 50, 120, 6, avg);
+    if(r->cur_peak_dbm > RF_SCAN_NO_SIGNAL_DBM) {
+        char rssi[24];
+        snprintf(rssi, sizeof(rssi), "pk %d dBm", r->cur_peak_dbm);
+        canvas_draw_str(canvas, 2, 43, rssi);
+        draw_signal_bar(canvas, 62, 37, 64, 6, r->cur_peak_dbm);
     }
 
-    // Progress bar: 300-928 MHz
-    uint32_t span = MANUAL_MAX_HZ - MANUAL_MIN_HZ;
-    uint32_t done = (app->roll_hz > MANUAL_MIN_HZ) ? (app->roll_hz - MANUAL_MIN_HZ) : 0;
-    int prog = (int)(done * 120u / span);
-    canvas_draw_frame(canvas, 2, 58, 120, 5);
-    if(prog > 0) canvas_draw_box(canvas, 2, 58, prog, 5);
+    uint32_t done = 0, total = 1;
+    if(r->phase == RollPhaseCoarse) {
+        done = r->idx;
+        total = r->plan_len ? r->plan_len : 1u;
+    } else if(r->phase == RollPhaseFine) {
+        done = r->cluster_idx;
+        total = r->cluster_count ? r->cluster_count : 1u;
+    }
+    int prog = (int)(done * 120u / total);
+    canvas_draw_frame(canvas, 2, 47, 120, 5);
+    if(prog > 0) canvas_draw_box(canvas, 2, 47, prog, 5);
 
-    canvas_draw_str(canvas, 2, 63, "Back=stop");
+    canvas_draw_str(canvas, 2, 62, app->sd_logging ? "Back=stop OK=SD:on" : "Back=stop OK=SD:off");
+}
+
+#define RESULTS_VISIBLE 4
+
+static void draw_roll_results(Canvas* canvas, RfLoggerApp* app) {
+    RollScan* r = &app->roll;
+    canvas_clear(canvas);
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str(canvas, 2, 10, "Scan hits");
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str(canvas, 58, 10, "OK=tune Bk=exit");
+
+    int top = (int)r->result_cursor - RESULTS_VISIBLE / 2;
+    if(top > (int)r->cluster_count - RESULTS_VISIBLE) top = (int)r->cluster_count - RESULTS_VISIBLE;
+    if(top < 0) top = 0;
+    for(int i = 0; i < RESULTS_VISIBLE && (top + i) < (int)r->cluster_count; i++) {
+        int idx = top + i;
+        const RfScanCluster* c = &r->clusters[idx];
+        uint32_t hz = roll_result_hz(c);
+        int16_t pk = c->fine_done ? c->fine_peak_dbm : c->peak_dbm;
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%3lu.%03lu %4d %c %s",
+                 (unsigned long)(hz / 1000000u), (unsigned long)((hz / 1000u) % 1000u),
+                 pk, c->fine_done ? 'F' : 'C', pk >= RF_SCAN_STRONG_DBM ? "S" : "M");
+        int y = 22 + i * 11;
+        bool sel = (idx == r->result_cursor);
+        if(sel) {
+            canvas_draw_box(canvas, 0, y - 9, 124, 11);
+            canvas_invert_color(canvas);
+        }
+        canvas_draw_str(canvas, 2, y, buf);
+        if(sel) canvas_invert_color(canvas);
+    }
+    if(r->cluster_count > RESULTS_VISIBLE)
+        elements_scrollbar(canvas, r->result_cursor, r->cluster_count);
 }
 
 /* ---- DB list screen ---- */
@@ -478,31 +785,40 @@ static void handle_db_input(RfLoggerApp* app, InputEvent* ev) {
         if(is_short) {
             uint32_t hz = FREQ_DB[app->db_cursor].hz;
             if(hz == 0u) {
-                // Start rolling scan
-                usb_take(app);
-                app->roll_hz       = MANUAL_MIN_HZ;
-                app->roll_rssi_sum = 0;
-                app->roll_rssi_min = 0;
-                app->roll_n        = 0;
-                app->roll_dwell    = false;
-                app->roll_last_flag[0] = '\0';
-                subghz_start(app, app->roll_hz);
-                // Header over USB + BLE
-                const char* hdr = "# RF_LOGGER_ROLL start=300000000 step=1000000 max=928000000\r\n"
-                                  "ROLL,ts_ms,freq_hz,rssi_avg,rssi_min,samples,flag\r\n";
-                furi_hal_cdc_send(VCP_DATA_CH, (uint8_t*)hdr, (uint16_t)strlen(hdr));
-                if(app->ble_profile)
-                    ble_profile_serial_tx(app->ble_profile, (uint8_t*)hdr, (uint16_t)strlen(hdr));
-                app->roll_end_tick = furi_get_tick() + ROLL_DWELL_MS;
-                app->state = StateRolling;
-                notification_message(app->notifications, &sequence_blink_start_cyan);
-            } else if(hz >= MANUAL_MIN_HZ && hz <= MANUAL_MAX_HZ) {
+                roll_begin(app);
+            } else if(furi_hal_subghz_is_frequency_valid(hz)) {
                 app->manual_hz = hz;
                 manual_clamp(app);
                 app->state = StateManualEntry;
             } else {
-                app->state = StateManualEntry;
+                notification_message(app->notifications, &sequence_error);
             }
+        }
+        break;
+    case InputKeyBack:
+        if(is_short) app->state = StateManualEntry;
+        break;
+    default: break;
+    }
+}
+
+static void handle_results_input(RfLoggerApp* app, InputEvent* ev) {
+    RollScan* r = &app->roll;
+    bool is_short  = (ev->type == InputTypeShort);
+    bool is_repeat = (ev->type == InputTypeRepeat);
+    if(!is_short && !is_repeat) return;
+    switch(ev->key) {
+    case InputKeyUp:
+        if(r->result_cursor > 0) r->result_cursor--;
+        break;
+    case InputKeyDown:
+        if(r->result_cursor + 1u < r->cluster_count) r->result_cursor++;
+        break;
+    case InputKeyOk:
+        if(is_short && r->cluster_count > 0) {
+            uint32_t hz = roll_result_hz(&r->clusters[r->result_cursor]);
+            app->manual_hz = hz; // Back from Running lands on this frequency
+            start_running(app, hz);
         }
         break;
     case InputKeyBack:
@@ -550,8 +866,12 @@ static void draw_manual(Canvas* canvas, RfLoggerApp* app) {
     int ux = x_positions[app->manual_cursor];
     canvas_draw_line(canvas, ux, y_text + 2, ux + digit_w - 2, y_text + 2);
 
-    // Hint footer
-    canvas_draw_str(canvas, 4, 56, "U/D chg  L/R mov  R>DB");
+    // Hint footer — warn when the value sits in a CC1101 hole
+    if(!furi_hal_subghz_is_frequency_valid(app->manual_hz)) {
+        canvas_draw_str(canvas, 4, 56, "Hors bande CC1101!");
+    } else {
+        canvas_draw_str(canvas, 4, 56, "U/D chg  L/R mov  R>DB");
+    }
     canvas_draw_str(canvas, 4, 64, "OK start   Back cancel");
 }
 
@@ -610,10 +930,13 @@ static void draw_running(Canvas* canvas, RfLoggerApp* app) {
 static void render_cb(Canvas* canvas, void* ctx) {
     RfLoggerApp* app = ctx;
     furi_mutex_acquire(app->mutex, FuriWaitForever);
-    if(app->state == StateManualEntry)  draw_manual(canvas, app);
-    else if(app->state == StateDbList)  draw_db(canvas, app);
-    else if(app->state == StateRolling) draw_rolling_scan(canvas, app);
-    else                                draw_running(canvas, app);
+    switch(app->state) {
+    case StateManualEntry: draw_manual(canvas, app); break;
+    case StateDbList:      draw_db(canvas, app); break;
+    case StateRolling:     draw_rolling_scan(canvas, app); break;
+    case StateRollResults: draw_roll_results(canvas, app); break;
+    default:               draw_running(canvas, app); break;
+    }
     furi_mutex_release(app->mutex);
 }
 
@@ -629,9 +952,11 @@ static void start_running(RfLoggerApp* app, uint32_t hz) {
     if(subghz_start(app, hz)) {
         app->state = StateRunning;
         notification_message(app->notifications, &sequence_blink_start_green);
+    } else {
+        subghz_stop();
+        notification_message(app->notifications, &sequence_error);
     }
 }
-
 
 static void handle_manual_input(RfLoggerApp* app, InputEvent* ev) {
     bool is_short  = (ev->type == InputTypeShort);
@@ -656,9 +981,7 @@ static void handle_manual_input(RfLoggerApp* app, InputEvent* ev) {
     case InputKeyOk:
         if(is_short) {
             manual_clamp(app);
-            if(furi_hal_subghz_is_frequency_valid(app->manual_hz)) {
-                start_running(app, app->manual_hz);
-            }
+            start_running(app, app->manual_hz); // errors blink red
         }
         break;
     default: break;
@@ -669,15 +992,31 @@ static void handle_running_input(RfLoggerApp* app, InputEvent* ev) {
     if(ev->type != InputTypeShort) return;
     switch(ev->key) {
     case InputKeyOk:
-        app->sd_logging = !app->sd_logging;
-        if(app->sd_logging) log_open(app); else log_close(app);
+        log_toggle(app, RUN_CSV_HEADER);
         break;
     case InputKeyBack:
-        subghz_stop(); log_close(app);
+        subghz_stop();
+        log_close(app);
         notification_message(app->notifications, &sequence_blink_stop);
         app->state = StateManualEntry;
         break;
     default: break;
+    }
+}
+
+static void handle_rolling_input(RfLoggerApp* app, InputEvent* ev) {
+    if(ev->type != InputTypeShort) return;
+    if(ev->key == InputKeyBack) {
+        roll_finish(app, true);
+    } else if(ev->key == InputKeyOk) {
+        /* self-describing file: scan settings + columns up front */
+        char hdr[256];
+        snprintf(hdr, sizeof(hdr),
+                 "# RF_LOGGER_ROLL v=3 step=%lu dwell_ms=%lu fine_step=%lu fine_dwell_ms=%lu\r\n%s",
+                 (unsigned long)RF_SCAN_COARSE_STEP_HZ, (unsigned long)RF_SCAN_COARSE_DWELL_MS,
+                 (unsigned long)RF_SCAN_FINE_STEP_HZ, (unsigned long)RF_SCAN_FINE_DWELL_MS,
+                 ROLL_CSV_HEADER);
+        log_toggle(app, hdr);
     }
 }
 
@@ -690,6 +1029,7 @@ int32_t rf_logger_app(void* p) {
     app->manual_cursor = 2; // start on the ones-of-MHz digit
     app->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     app->input_queue = furi_message_queue_alloc(8, sizeof(InputEvent));
+    app->cdc_tx_sem = furi_semaphore_alloc(1, 1);
     app->viewport = view_port_alloc();
     app->gui = furi_record_open(RECORD_GUI);
     app->storage = furi_record_open(RECORD_STORAGE);
@@ -705,28 +1045,20 @@ int32_t rf_logger_app(void* p) {
     uint32_t next_sample = 0;
     while(!exit) {
         InputEvent ev;
-        FuriStatus s = furi_message_queue_get(app->input_queue, &ev, 50);
+        /* Rolling: each step blocks for its own dwell, so don't wait here. */
+        uint32_t wait = (app->state == StateRolling) ? 0u : 50u;
+        FuriStatus s = furi_message_queue_get(app->input_queue, &ev, wait);
         if(s == FuriStatusOk) {
             furi_mutex_acquire(app->mutex, FuriWaitForever);
-            if(app->state == StateManualEntry) {
+            switch(app->state) {
+            case StateManualEntry:
                 if(ev.key == InputKeyBack && ev.type == InputTypeShort) exit = true;
                 else handle_manual_input(app, &ev);
-            } else if(app->state == StateDbList) {
-                handle_db_input(app, &ev);
-            } else if(app->state == StateRolling) {
-                // Back stops the rolling scan
-                if(ev.key == InputKeyBack && ev.type == InputTypeShort) {
-                    subghz_stop();
-                    notification_message(app->notifications, &sequence_blink_stop);
-                    app->state = StateManualEntry;
-                }
-                // OK toggles SD logging during rolling
-                if(ev.key == InputKeyOk && ev.type == InputTypeShort) {
-                    app->sd_logging = !app->sd_logging;
-                    if(app->sd_logging) log_open(app); else log_close(app);
-                }
-            } else {
-                handle_running_input(app, &ev);
+                break;
+            case StateDbList:      handle_db_input(app, &ev); break;
+            case StateRolling:     handle_rolling_input(app, &ev); break;
+            case StateRollResults: handle_results_input(app, &ev); break;
+            default:               handle_running_input(app, &ev); break;
             }
             furi_mutex_release(app->mutex);
         }
@@ -739,33 +1071,22 @@ int32_t rf_logger_app(void* p) {
                 next_sample = now + SAMPLE_PERIOD_MS;
             }
         } else if(app->state == StateRolling) {
-            uint32_t now = furi_get_tick();
-            if(now >= next_sample) {
-                furi_mutex_acquire(app->mutex, FuriWaitForever);
-                bool done = roll_tick(app);
-                furi_mutex_release(app->mutex);
-                next_sample = now + SAMPLE_PERIOD_MS;
-                if(done) {
-                    furi_mutex_acquire(app->mutex, FuriWaitForever);
-                    subghz_stop();
-                    log_close(app);
-                    notification_message(app->notifications, &sequence_blink_stop);
-                    app->state = StateManualEntry;
-                    furi_mutex_release(app->mutex);
-                }
-            }
+            roll_step(app);
         }
         ble_keepalive(app);
         view_port_update(app->viewport);
     }
 
+    if(app->roll.phase != RollPhaseIdle) roll_finish(app, true);
     subghz_stop();
     log_close(app);
     usb_release(app);
     ble_stop(app);
+    roll_free(&app->roll);
     gui_remove_view_port(app->gui, app->viewport);
     view_port_free(app->viewport);
     furi_message_queue_free(app->input_queue);
+    furi_semaphore_free(app->cdc_tx_sem);
     furi_mutex_free(app->mutex);
     furi_record_close(RECORD_NOTIFICATION);
     furi_record_close(RECORD_STORAGE);

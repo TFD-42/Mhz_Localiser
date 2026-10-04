@@ -43,3 +43,6 @@ secrets*
 id_rsa*
 .netrc
 
+
+# Host test binaries
+flipper/tests/test_rf_scan
