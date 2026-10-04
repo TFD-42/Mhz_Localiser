@@ -1,4 +1,4 @@
-# Mhz_Localiser
+# Mhz_Localiser — Flipper Zero RF Triangulator
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/TFD-42/Mhz_Localiser/actions/workflows/ci.yml/badge.svg)](https://github.com/TFD-42/Mhz_Localiser/actions/workflows/ci.yml)
@@ -8,12 +8,15 @@
 ![Spectrum DB: offline](https://img.shields.io/badge/spectrum%20DB-2%2C967%20rows-2ea043)
 ![Rolling scan: 2-pass, 300–928 MHz CC1101 bands](https://img.shields.io/badge/rolling%20scan-2--pass%20·%20CC1101%20bands-FF8200)
 ![Status: beta](https://img.shields.io/badge/status-beta-yellow)
+[![GitHub stars](https://img.shields.io/github/stars/TFD-42/Mhz_Localiser?style=social)](https://github.com/TFD-42/Mhz_Localiser/stargazers)
 
-**RF signal triangulation + spectrum allocation lookup** — Flipper Zero streams live RSSI over **USB or Bluetooth LE** to an Android app that logs GPS + signal, estimates the transmitter location on a map, and lets you look up the regulatory allocation (USA, ITU, EU per country) of any frequency you observe.
+**Locate Sub-GHz transmitters with a Flipper Zero and an Android phone.** RSSI triangulation (Nelder-Mead on a log-distance path-loss model), a two-pass CC1101 band scan, and offline spectrum allocation lookup (ITU / FCC / CEPT / OFCOM).
 
-**Contents:** [How it works](#how-it-works) · [What's new in v3.0](#whats-new-in-v30) · [What's new in v2.2](#whats-new-in-v22) · [What's new in v2.1](#whats-new-in-v21) · [Operational workflow](#operational-workflow) · [Field validation](#field-validation) · [Physical limitations](#physical-limitations) · [vs. real RF gear](#comparison-with-real-rf-equipment) · [Use cases](#realistic-use-cases) · [Quick start](#quick-start) · [Allocation list](#allocation-list) · [Roll Scan](#roll-scan) · [Build from source](#build-from-source) · [Data protocol](#data-protocol-usb--ble)
+**How:** Flipper Zero streams live RSSI over **USB or Bluetooth LE** to an Android app that logs GPS + signal, estimates the transmitter location on a map, and lets you look up the regulatory allocation (USA, ITU, EU per country) of any frequency you observe.
 
-<img width="1254" height="1254" alt="ChatGPT Image 16 mai 2026 à 03_50_03" src="https://github.com/user-attachments/assets/5aa42b1d-563e-409e-b09f-10ac508359c3" />
+**Contents:** [How it works](#how-it-works) · [What's new in v3.0](#whats-new-in-v30) · [What's new in v2.2](#whats-new-in-v22) · [What's new in v2.1](#whats-new-in-v21) · [How to triangulate a transmitter](#how-to-triangulate-a-sub-ghz-transmitter-with-a-flipper-zero) · [Field validation](#field-validation) · [Physical limitations](#physical-limitations) · [vs. real RF gear](#comparison-with-real-rf-equipment) · [Use cases](#realistic-use-cases) · [Quick start](#quick-start) · [Allocation list](#allocation-list) · [Roll Scan](#roll-scan) · [Build from source](#build-from-source) · [Data protocol](#data-protocol-usb--ble)
+
+<img width="1254" height="1254" alt="Mhz_Localiser illustration: Flipper Zero and Android phone used as an RF triangulator" src="https://github.com/user-attachments/assets/5aa42b1d-563e-409e-b09f-10ac508359c3" />
 
 > **Honest disclaimer:** This is a low-cost, mobile RSSI-based approach. It gives approximate results, not GPS-grade precision. Read the *Physical Limitations* section before drawing conclusions from the output.
 
@@ -108,11 +111,11 @@ Mhz_Localiser/
 - **Android app** (`RF_Triangulator.apk`) connects to the Flipper over **USB-C or Bluetooth LE** (your choice), reads the live RSSI stream, and logs GPS + signal captures on a map.
 - With 3 or more captures from different positions, the app runs a **Nelder-Mead least-squares solver** to estimate the transmitter location.
 
-<img width="3200" height="3200" alt="layout-collage-1779109255380" src="https://github.com/user-attachments/assets/6854f5c0-e2ab-4062-8f6e-4ff474ce8be5" />
+<img width="3200" height="3200" alt="RF Triangulator Android app screenshots" src="https://github.com/user-attachments/assets/6854f5c0-e2ab-4062-8f6e-4ff474ce8be5" />
 
-<img width="709" height="1536" alt="1000722535" src="https://github.com/user-attachments/assets/6889242d-29a7-45f7-bb6f-4333b7022c85" />
+<img width="709" height="1536" alt="RF Triangulator Android app screenshot" src="https://github.com/user-attachments/assets/6889242d-29a7-45f7-bb6f-4333b7022c85" />
 
-<img width="709" height="1536" alt="list" src="https://github.com/user-attachments/assets/9017b787-0ee8-4b15-8c35-169e737cbf49" />
+<img width="709" height="1536" alt="RF Triangulator Android app list view screenshot" src="https://github.com/user-attachments/assets/9017b787-0ee8-4b15-8c35-169e737cbf49" />
 
 ## RF Architecture
 
@@ -150,7 +153,7 @@ Mhz_Localiser/
 
 The CC1101 chip inside the Flipper Zero is a general-purpose Sub-GHz transceiver. Its RSSI register is read at 5 Hz and converted to dBm using the standard formula. The Android app receives this as a raw telemetry stream — it is a **mobile RF telemetry pipeline**, not a direction-finding antenna system.
 
-## Flipper app flow (v2.2)
+## Flipper app flow (v3.0)
 
 ```
 Launch
@@ -162,7 +165,7 @@ Launch
         Back       — exit app
 
 Frequency DB list
-  └─► Scrollable list of 32 pre-loaded frequencies + CH section
+  └─► Scrollable list of 31 pre-loaded frequencies (CH entries included)
         Up/Down — scroll
         OK      — load selected frequency into manual screen
         Top entry (▶ START ROLL SCAN) → starts rolling scan
@@ -191,7 +194,7 @@ Scan results
 
 > **Bluetooth note:** enable **Settings → Bluetooth** on the Flipper so the app can advertise. Keep the official Flipper mobile app closed while connected here — only one BLE central can hold the link at a time.
 
-## Operational Workflow
+## How to triangulate a Sub-GHz transmitter with a Flipper Zero
 
 Most people imagine: *"point the Flipper, app finds the source instantly."*
 The reality is **mobile statistical inference**. Here is the actual workflow:
@@ -199,7 +202,8 @@ The reality is **mobile statistical inference**. Here is the actual workflow:
 ```
 1. ENTER FREQUENCY
    └─ Dial the target frequency digit by digit on the Flipper
-      (300–928 MHz range, 10 kHz resolution)
+      (CC1101 bands 300–348 / 387–464 / 779–928 MHz, 10 kHz resolution;
+       out-of-band values are flagged on screen)
 
 2. VERIFY SIGNAL
    └─ Confirm RSSI is above noise floor (> -100 dBm)
@@ -291,19 +295,22 @@ Wrong `n` = systematically biased distance estimates = bad triangulation even wi
 
 | Solution                       | Method                                | Typical accuracy           | Cost          |
 |--------------------------------|---------------------------------------|----------------------------|---------------|
-| **Mhz_Localiser (this project)**| RSSI trilateration, mobile           | 15–150 m depending on env. | ~$60 (Flipper + phone) |
-| KrakenSDR                      | 5-element coherent SDR phase array    | 2–10 m outdoors            | ~$500         |
-| HackRF + directional antenna   | Manual DF, SDR                        | 5–20 m with skill          | ~$350 + antenna |
-| RTL-SDR + Doppler DF           | Software Doppler shift                | 10–30 m                    | ~$30 + antenna |
-| Professional TDOA systems      | Time-difference of arrival            | <1 m                       | $5,000–$50,000 |
+| **Mhz_Localiser (this project)**| RSSI trilateration, mobile           | 15–150 m depending on env. (measured, see above) | $169 Flipper Zero¹ + the phone you already have |
+| KrakenSDR                      | 5-element coherent SDR phase array    | 2–10 m outdoors²           | $750–775² + antennas |
+| HackRF + directional antenna   | Manual DF, SDR                        | 5–20 m with skill²         | ~$340² + antenna |
+| RTL-SDR + Doppler DF           | Software Doppler shift                | 10–30 m²                   | ~$35–50² + DF antenna |
+| Professional TDOA systems      | Time-difference of arrival            | <1 m²                      | $5,000–$50,000² |
 
-Mhz_Localiser is the **lowest cost and lowest barrier** option. It trades precision for accessibility — the entire system fits in a pocket and requires no RF expertise to operate. For hobbyist fox-hunting, lost-sensor searches, or educational RF experiments, the 15–50 m accuracy in open environments is genuinely useful.
+¹ Official list price, [flipper.net](https://flipper.net/products/flipper-zero), checked 2026-10-04.  
+² Indicative only — not measured by this project. Prices checked 2026-10-04: KrakenSDR [$775 Crowd Supply](https://www.crowdsupply.com/krakenrf/krakensdr) / [$750 RTL-SDR Blog](https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/), HackRF One [$339.95 SparkFun](https://www.sparkfun.com/hackrf-one.html), RTL-SDR Blog V3/V4L [$34.95–49.95](https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/). Accuracy and TDOA figures are typical values, not benchmarks.
+
+Mhz_Localiser is not the cheapest hardware path (an RTL-SDR is cheaper), but it is the **lowest barrier for Flipper Zero owners**: zero extra hardware, no SDR software stack. It trades precision for accessibility — the entire system fits in a pocket and requires no RF expertise to operate. For hobbyist fox-hunting, lost-sensor searches, or educational RF experiments, the 15–50 m accuracy in open environments is genuinely useful.
 
 ## Realistic Use Cases
 
 ### Good fits ✓
 - **Lost LoRa sensor or tracker** — device is stationary, open outdoor environment, you just need to narrow a search area to ~50 m
-- **RF interference source hunt** — approximate location of a jammer or misbehaving device in a building or parking lot
+- **RF interference source hunt** — approximate location of a jammer or misbehaving device in a building or parking lot; also usable in **authorized** RF / physical security assessments (see [ETHICS.md](ETHICS.md))
 - **Keyfob / garage door transmitter** — short range, open space, works well
 - **Educational RF experiments** — understanding path loss, multipath, trilateration geometry
 - **Sub-GHz survey** — mapping signal coverage of a fixed transmitter across a site
@@ -329,7 +336,7 @@ On the Flipper: **Apps → Sub-GHz → RF Logger**
 
 - App opens directly on the **manual frequency entry** screen (433.92 MHz default).
 - **↑/↓** change the active digit · **←/→** move the cursor across `XXX.XX MHz` · **OK** starts the scan · **Back** exits.
-- Range clamped to 300–928 MHz (CC1101 Sub-GHz hardware limit).
+- Range clamped to 300–928 MHz; values in the CC1101 gaps (348–387 and 464–779 MHz) are flagged as out of band.
 - In running mode: **OK** toggles SD card logging on/off · **Back** returns to frequency entry.
 
 ### Step 2 — Install the Android app
@@ -502,7 +509,7 @@ Event lines start with `# RF_LOGGER_RSCAN ` followed by `pos`, `floor`, `end`, `
 - No hardcoded IP addresses — all communication is local (USB or Bluetooth LE), device-to-phone only.
 - USB permission via standard Android intent (`UsbManager.requestPermission`); Bluetooth via runtime `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT` permissions (scan flagged `neverForLocation`).
 - Location permission requested at runtime only (for GPS capture).
-- No outbound network requests from the app (map tiles load from OpenStreetMap via WebView only).
+- The only outbound network traffic is OpenStreetMap map tiles. Leaflet is bundled in the APK (`android/www/vendor/leaflet-1.9.4/`), so the app boots, connects and runs the Allocation List and Roll Scan with no network; offline, the map background is simply blank. Covered by `android/tests/offline_boot.test.js` in CI.
 
 ## Requirements
 
@@ -512,6 +519,15 @@ Event lines start with `# RF_LOGGER_RSCAN ` followed by `pos`, `floor`, `end`, `
 | Android      | 8.0+ (API 26); USB OTG **or** Bluetooth LE |
 | Connection   | USB-C cable (USB-A OTG adapter), **or** Bluetooth LE — no cable needed |
 | GPS          | Required for capture; indoor = poor accuracy |
+
+## Contributing
+
+Bug reports, field measurements (environment, captures, real vs. estimated distance) and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and [SETUP.md](SETUP.md). If the project is useful to you, starring the repository helps other Flipper Zero users find it.
+
+## Third-party components
+
+- [Leaflet](https://leafletjs.com/) 1.9.4 — BSD-2-Clause, bundled in `android/www/vendor/leaflet-1.9.4/` with its license.
+- Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.
 
 ## License
 

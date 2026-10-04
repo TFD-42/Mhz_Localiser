@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flipper Zero RF Triangulator — Mhz_Localiser</title>
+<meta name="description" content="Locate Sub-GHz transmitters with a Flipper Zero and an Android phone: live RSSI over USB/BLE, Nelder-Mead triangulation, offline spectrum lookup. MIT.">
+<link rel="canonical" href="https://tfd-42.github.io/Mhz_Localiser/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Flipper Zero RF Triangulator — Mhz_Localiser">
+<meta property="og:description" content="Sub-GHz RSSI triangulation with a Flipper Zero and an Android phone. Open source, MIT.">
+<meta property="og:url" content="https://tfd-42.github.io/Mhz_Localiser/">
+<meta property="og:image" content="https://tfd-42.github.io/Mhz_Localiser/images/roll-scan-v3.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Mhz_Localiser",
+  "alternateName": "Flipper Zero RF Triangulator",
+  "description": "Flipper Zero FAP + Android app: live Sub-GHz RSSI over USB CDC or Bluetooth LE, transmitter triangulation with a Nelder-Mead solver on a log-distance path-loss model, two-pass CC1101 band scan, offline spectrum allocation lookup (ITU, FCC, CEPT, OFCOM).",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "Android, Flipper Zero firmware",
+  "softwareVersion": "3.0",
+  "license": "https://opensource.org/licenses/MIT",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "codeRepository": "https://github.com/TFD-42/Mhz_Localiser",
+  "url": "https://tfd-42.github.io/Mhz_Localiser/",
+  "author": { "@type": "Person", "name": "TFD-42", "url": "https://github.com/TFD-42" }
+}
+</script>
+<style>
+:root{--bg:#fafaf7;--fg:#1b1d1f;--muted:#5b6168;--line:#dfe2e5;--accent:#e26b00;--card:#ffffff;--code:#f1f2f4}
+@media (prefers-color-scheme:dark){:root{--bg:#121416;--fg:#e8eaed;--muted:#9aa1a9;--line:#2b2f34;--accent:#ff9a3c;--card:#1a1d20;--code:#22262a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:40px 16px 64px}
+h1{font-size:clamp(1.8rem,5vw,2.6rem);line-height:1.15;margin:0 0 12px}
+h2{font-size:1.25rem;margin:40px 0 12px;padding-top:8px;border-top:1px solid var(--line)}
+p.lead{font-size:1.15rem;color:var(--muted);margin:0 0 24px}
+a{color:var(--accent)}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 32px}
+.cta a{display:inline-block;padding:10px 16px;border:1px solid var(--accent);border-radius:6px;text-decoration:none;font-weight:600}
+.cta a.primary{background:var(--accent);color:#111}
+ul{padding-left:1.2em}
+li{margin:4px 0}
+figure{margin:24px 0;text-align:center}
+figure img{max-width:360px;width:100%;height:auto;border:1px solid var(--line);border-radius:8px}
+figcaption{color:var(--muted);font-size:.9rem;margin-top:8px}
+pre{background:var(--code);padding:12px 14px;border-radius:6px;overflow-x:auto;font-size:.9rem}
+table{border-collapse:collapse;width:100%;font-size:.95rem;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;white-space:nowrap}
+.note{background:var(--card);border-left:3px solid var(--accent);padding:12px 16px;border-radius:4px}
+footer{margin-top:48px;color:var(--muted);font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+<h1>Flipper Zero RF Triangulator</h1>
+<p class="lead">Mhz_Localiser locates Sub-GHz transmitters with a Flipper Zero and an Android phone: live RSSI over USB or Bluetooth LE, Nelder-Mead triangulation, a two-pass CC1101 band scan and an offline spectrum allocation lookup. Open source, MIT.</p>
+<div class="cta">
+  <a class="primary" href="https://github.com/TFD-42/Mhz_Localiser">Source on GitHub</a>
+  <a href="https://github.com/TFD-42/Mhz_Localiser#quick-start">Quick start</a>
+  <a href="https://github.com/TFD-42/Mhz_Localiser#physical-limitations">Physical limitations</a>
+</div>
+
+<h2>What it does</h2>
+<ul>
+  <li><strong>RSSI streaming</strong> — the <code>rf_logger.fap</code> Flipper app samples the CC1101 RSSI register at 5 Hz and streams CSV over USB CDC and Bluetooth LE at the same time.</li>
+  <li><strong>Triangulation</strong> — the Android app logs GPS + RSSI captures; from 3 or more positions a Nelder-Mead least-squares solver on a log-distance path-loss model estimates the transmitter position, with an RMS residual.</li>
+  <li><strong>Two-pass band scan</strong> — coarse pass over 300–348 / 387–464 / 779–928 MHz (600 kHz steps, peak-hold), fine pass around each hit for centre frequency and occupied width.</li>
+  <li><strong>Offline allocation lookup</strong> — 2,967 spectrum allocation rows (ITU regions, USA, EU countries, Switzerland/OFCOM) bundled in the app.</li>
+</ul>
+
+<figure>
+  <img src="images/roll-scan-v3.jpg" alt="Roll Scan tab during a two-pass scan: 20 hits with STRONG/MED classification and Tune buttons" width="360" height="650" loading="lazy">
+  <figcaption>Field test, 4 Oct 2026: two-pass scan streamed to the Roll Scan tab.</figcaption>
+</figure>
+
+<h2>How to triangulate a transmitter</h2>
+<pre>1. Enter the frequency on the Flipper (or pick a Roll Scan hit)
+2. Check RSSI is above the noise floor
+3. Capture GPS + RSSI from 3–6 positions that surround the source
+4. Read the estimate and its RMS error; re-capture if RMS is high</pre>
+
+<h2>Accuracy, honestly</h2>
+<p class="note">RSSI is not distance. In the project's field tests the RMS error ranged from 13–22 m in open field to 95–130 m in dense urban streets; indoors results were unstable. This is not direction finding and not suitable for tracking a moving transmitter. Full numbers and caveats are in the <a href="https://github.com/TFD-42/Mhz_Localiser#field-validation">field validation</a> and <a href="https://github.com/TFD-42/Mhz_Localiser#physical-limitations">limitations</a> sections.</p>
+
+<h2>Requirements</h2>
+<table>
+  <tr><th>Component</th><th>Requirement</th></tr>
+  <tr><td>Flipper Zero</td><td>Firmware 0.97+ (official or Unleashed)</td></tr>
+  <tr><td>Android</td><td>8.0+, USB OTG or Bluetooth LE</td></tr>
+  <tr><td>Link</td><td>USB-C cable or Bluetooth LE</td></tr>
+</table>
+
+<h2>Legal use</h2>
+<p>Receive-only analysis intended for education, your own equipment and authorized assessments. Read <a href="https://github.com/TFD-42/Mhz_Localiser/blob/main/ETHICS.md">ETHICS.md</a> before use.</p>
+
+<footer>
+  MIT License · <a href="https://github.com/TFD-42/Mhz_Localiser">github.com/TFD-42/Mhz_Localiser</a> · Map data © OpenStreetMap contributors
+</footer>
+</main>
+</body>
+</html>
