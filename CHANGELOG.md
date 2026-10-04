@@ -26,6 +26,8 @@ and this project aims to follow semantic-ish versioning tied to the FAP/APK vers
   lost-line counter, Peak/Width columns, DOM built with `textContent`.
 
 ### Added
+- Field validation on hardware (2026-10-04): two-pass scan, 20 hits received by the
+  Android Roll Scan tab; screenshot in `docs/images/roll-scan-v3.jpg` (README → Roll Scan).
 - FAP scan-results screen: OK starts continuous RSSI on the selected hit.
 - `flipper/rf_scan.{c,h}`: hardware-free scan logic; host tests in `flipper/tests`
   (ASan/UBSan) and `android/tests/roll_ui.test.js` (jsdom), both wired into CI.

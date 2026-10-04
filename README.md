@@ -62,6 +62,7 @@ Mhz_Localiser/
 | **Protocol v3 (backward compatible)** | `ROLL` lines keep their first 7 columns and add `pass,floor_dbm,width_hz,cluster,seq`; progress/end events go on `# RF_LOGGER_RSCAN` lines, which older APKs ignore. |
 | **Android Roll Scan tab** | Pass-aware progress, fine result replaces the coarse estimate, lost-line counter from `seq`, Peak/Width columns, and the **Tune** button works again (it referenced variables outside its scope). |
 | **Fixes** | SD flag no longer stays `on` after a stop; rolling-scan SD files get the rolling header; Back from a rolling scan closes the SD file; DB entries the CC1101 cannot tune (169.40, 380.5, 466.025 MHz) removed; manual screen flags out-of-band values. |
+| **Field-validated** | Tested on hardware on 4 Oct 2026: full two-pass scan, 20 hits streamed to the phone over the live link — see the [Roll Scan](#roll-scan) screenshot. |
 | **Tests** | `make -C flipper/tests` (host unit tests, ASan/UBSan) and a jsdom test of the Roll Scan tab, both in CI. |
 
 ## What's new in v2.2
@@ -383,6 +384,12 @@ Data is bundled into the APK as `spectrum.csv` — **2,967 rows** covering ITU R
 ## Roll Scan
 
 The third tab (**Roll Scan**) receives the rolling sweep stream from the Flipper and builds a map of everything active in the three CC1101 bands (300–348, 387–464, 779–928 MHz).
+
+<p align="center">
+  <img src="docs/images/roll-scan-v3.jpg" alt="Roll Scan tab during a v3 two-pass scan: 20 hits, STRONG/MED classification, Tune buttons" width="360">
+</p>
+
+*Field test, 4 Oct 2026: `rf_logger.fap` 3.0 streaming into the Roll Scan tab — 20 hits, coarse lines (100–300 samples) and fine-pass lines (600–1800 samples). This capture comes from the previous APK (v2.2 column headers `Min RSSI` / `Samples`), which shows the v3 stream is backward compatible; the rebuilt APK shows `Peak RSSI` / `Width`, the `·F`/`·C` pass tag and the end-of-scan summary.*
 
 | Column | Description |
 |--------|-------------|
